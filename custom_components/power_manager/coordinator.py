@@ -99,7 +99,6 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     runtime = self._runtime.setdefault(name, ConsumerRuntime())
 
                     current_power = self._state_float(c.get("power_entity", ""))
-                    is_on = (self.hass.states.get(switch_entity) or {}).state == "on"
 
                     should_on = False
                     if runtime.mode == MODE_FORCE_ON:

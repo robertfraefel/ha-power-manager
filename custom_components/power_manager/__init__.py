@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 
-from .const import DOMAIN, MODE_AUTO, PLATFORMS, VALID_MODES
+from .const import DOMAIN, PLATFORMS, VALID_MODES
 from .coordinator import PowerManagerCoordinator
 
 SERVICE_SET_RUNNING = "set_running"
 SERVICE_SET_CONSUMER_MODE = "set_consumer_mode"
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
