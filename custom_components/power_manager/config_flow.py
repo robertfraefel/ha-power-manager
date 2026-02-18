@@ -57,7 +57,7 @@ class PowerManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class PowerManagerOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry):
-        self.config_entry = config_entry
+        self._config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
         errors = {}
@@ -69,7 +69,7 @@ class PowerManagerOptionsFlow(config_entries.OptionsFlow):
             except Exception:
                 errors["base"] = "invalid_json"
 
-        current = {**self.config_entry.data, **self.config_entry.options}
+        current = {**self._config_entry.data, **self._config_entry.options}
         schema = vol.Schema(
             {
                 vol.Optional(
