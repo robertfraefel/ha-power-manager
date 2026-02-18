@@ -61,7 +61,14 @@ A native Home Assistant custom integration that replaces the Power-Manager_BackE
 
 ## Managing devices (add/update/delete)
 
-Use **Developer Tools → Actions** and call these services:
+You now have two ways:
+
+1. **Integration UI (recommended)**
+   - Settings → Devices & Services → Power Manager → Configure
+   - Choose action: add/update/remove producer/consumer, update base settings, then save
+
+2. **Developer Tools → Actions**
+   - Call services directly if you prefer automation/scripts
 
 - Add producer: `power_manager.add_producer`
 - Remove producer: `power_manager.remove_producer`

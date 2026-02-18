@@ -3,35 +3,48 @@
     "step": {
       "user": {
         "title": "Power Manager",
-        "description": "Configure base settings and how many producers/consumers to add."
-      },
-      "producer": {
-        "title": "Add producer",
-        "description": "Producer {index} of {count}"
-      },
-      "consumer": {
-        "title": "Add consumer",
-        "description": "Consumer {index} of {count}"
+        "description": "Initial setup (JSON import)."
       }
+    },
+    "error": {
+      "invalid_json": "Invalid JSON."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Power Manager options"
+        "title": "Power Manager settings"
       },
-      "edit_entities": {
-        "title": "Producer/consumer list"
-      },
-      "add_counts": {
-        "title": "Reset list sizes"
+      "base": {
+        "title": "Update base settings"
       },
       "add_producer": {
         "title": "Add producer"
       },
+      "update_producer_select": {
+        "title": "Select producer"
+      },
+      "update_producer_edit": {
+        "title": "Update producer"
+      },
+      "remove_producer": {
+        "title": "Remove producer"
+      },
       "add_consumer": {
         "title": "Add consumer"
+      },
+      "update_consumer_select": {
+        "title": "Select consumer"
+      },
+      "update_consumer_edit": {
+        "title": "Update consumer"
+      },
+      "remove_consumer": {
+        "title": "Remove consumer"
       }
+    },
+    "error": {
+      "name_exists": "Name already exists."
     }
   }
 }
