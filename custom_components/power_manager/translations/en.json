@@ -13,7 +13,8 @@
   "options": {
     "step": {
       "init": {
-        "title": "Power Manager settings"
+        "title": "Power Manager settings",
+        "description": "Current config:\nBase load: {base_load}\nScan interval: {scan_interval}s\nProducers ({producer_count}): {producers}\nConsumers ({consumer_count}): {consumers}\n\nChoose an action, repeat as needed, then Save and close."
       },
       "base": {
         "title": "Update base settings"

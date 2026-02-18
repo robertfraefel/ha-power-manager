@@ -65,7 +65,8 @@ You now have two ways:
 
 1. **Integration UI (recommended)**
    - Settings → Devices & Services → Power Manager → Configure
-   - Choose action: add/update/remove producer/consumer, update base settings, then save
+   - Start screen now shows a live summary (base load, interval, producer/consumer names)
+   - Choose action: add/update/remove producer/consumer, update base settings, optional quick SCB defaults, then save
 
 2. **Developer Tools → Actions**
    - Call services directly if you prefer automation/scripts

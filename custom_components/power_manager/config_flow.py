@@ -100,6 +100,15 @@ class PowerManagerOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_update_consumer_select()
             if action == "remove_consumer":
                 return await self.async_step_remove_consumer()
+            if action == "quick_apply_scbs":
+                self._base_load_entity = "sensor.scb_home_power"
+                for idx, p in enumerate(self._producers):
+                    if idx == 0:
+                        p["entity_id"] = "sensor.scb_solar_power"
+                return await self.async_step_init()
+
+        producer_names = ", ".join([p.get("name", "?") for p in self._producers]) or "none"
+        consumer_names = ", ".join([c.get("name", "?") for c in self._consumers]) or "none"
 
         schema = vol.Schema(
             {
@@ -112,12 +121,24 @@ class PowerManagerOptionsFlow(config_entries.OptionsFlow):
                         "add_consumer": "Add consumer",
                         "update_consumer": "Update consumer",
                         "remove_consumer": "Remove consumer",
+                        "quick_apply_scbs": "Quick apply SCB defaults (base+producer1)",
                         "finish": "Save and close",
                     }
                 )
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=schema,
+            description_placeholders={
+                "base_load": self._base_load_entity,
+                "scan_interval": str(self._scan_interval),
+                "producer_count": str(len(self._producers)),
+                "consumer_count": str(len(self._consumers)),
+                "producers": producer_names,
+                "consumers": consumer_names,
+            },
+        )
 
     async def async_step_base(self, user_input=None):
         if user_input is not None:
