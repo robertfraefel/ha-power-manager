@@ -14,6 +14,7 @@ A native Home Assistant custom integration that replaces the Power-Manager_BackE
   - `power_manager.set_consumer_mode`
   - `power_manager.add_producer`
   - `power_manager.remove_producer`
+  - `power_manager.update_producer`
   - `power_manager.add_consumer`
   - `power_manager.update_consumer`
   - `power_manager.remove_consumer`
@@ -58,6 +59,7 @@ Use **Developer Tools → Actions** and call these services:
 
 - Add producer: `power_manager.add_producer`
 - Remove producer: `power_manager.remove_producer`
+- Update producer: `power_manager.update_producer`
 - Add consumer: `power_manager.add_consumer`
 - Update consumer: `power_manager.update_consumer`
 - Remove consumer: `power_manager.remove_consumer`

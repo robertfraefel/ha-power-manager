@@ -12,6 +12,7 @@ SERVICE_SET_RUNNING = "set_running"
 SERVICE_SET_CONSUMER_MODE = "set_consumer_mode"
 SERVICE_ADD_PRODUCER = "add_producer"
 SERVICE_REMOVE_PRODUCER = "remove_producer"
+SERVICE_UPDATE_PRODUCER = "update_producer"
 SERVICE_ADD_CONSUMER = "add_consumer"
 SERVICE_UPDATE_CONSUMER = "update_consumer"
 SERVICE_REMOVE_CONSUMER = "remove_consumer"
@@ -46,6 +47,14 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         coordinator = _coordinator()
         if coordinator:
             await coordinator.async_remove_producer(call.data["name"])
+
+    async def _update_producer(call: ServiceCall):
+        coordinator = _coordinator()
+        if coordinator:
+            await coordinator.async_update_producer(
+                name=call.data["name"],
+                entity_id=call.data["entity_id"],
+            )
 
     async def _add_consumer(call: ServiceCall):
         coordinator = _coordinator()
@@ -110,6 +119,17 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_REMOVE_PRODUCER,
         _remove_producer,
         schema=vol.Schema({vol.Required("name"): cv.string}),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_UPDATE_PRODUCER,
+        _update_producer,
+        schema=vol.Schema(
+            {
+                vol.Required("name"): cv.string,
+                vol.Required("entity_id"): cv.entity_id,
+            }
+        ),
     )
     hass.services.async_register(
         DOMAIN,

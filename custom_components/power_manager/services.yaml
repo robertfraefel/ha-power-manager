@@ -47,6 +47,20 @@ remove_producer:
       selector:
         text:
 
+update_producer:
+  name: Update producer
+  description: Update producer entity by producer name.
+  fields:
+    name:
+      required: true
+      selector:
+        text:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          domain: sensor
+
 add_consumer:
   name: Add consumer
   description: Add a new consumer.

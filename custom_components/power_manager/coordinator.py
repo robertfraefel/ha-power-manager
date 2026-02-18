@@ -147,6 +147,14 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_save()
         await self.async_request_refresh()
 
+    async def async_update_producer(self, name: str, entity_id: str) -> None:
+        idx = self._find_idx_by_name(self._producers, name)
+        if idx < 0:
+            raise UpdateFailed(f"unknown producer: {name}")
+        self._producers[idx]["entity_id"] = entity_id
+        await self._async_save()
+        await self.async_request_refresh()
+
     async def async_add_consumer(
         self,
         name: str,
