@@ -151,3 +151,7 @@ remove_consumer:
       required: true
       selector:
         text:
+
+get_consumers:
+  name: Get consumers
+  description: Show current configured consumers in a persistent notification.

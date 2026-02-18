@@ -18,6 +18,7 @@ A native Home Assistant custom integration that replaces the Power-Manager_BackE
   - `power_manager.add_consumer`
   - `power_manager.update_consumer`
   - `power_manager.remove_consumer`
+  - `power_manager.get_consumers`
 - Entities:
   - `switch.power_manager_running`
   - `sensor.power_manager_total_production`
@@ -63,6 +64,7 @@ Use **Developer Tools → Actions** and call these services:
 - Add consumer: `power_manager.add_consumer`
 - Update consumer: `power_manager.update_consumer`
 - Remove consumer: `power_manager.remove_consumer`
+- Show current consumers: `power_manager.get_consumers`
 
 Changes are persisted immediately and applied without re-adding the integration.
 
