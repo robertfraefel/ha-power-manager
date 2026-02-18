@@ -147,6 +147,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             producers = data.get("producers", [])
             consumers = data.get("consumers", [])
             base_load_entity = data.get("base_load_entity", "unknown")
+            base_load_current = data.get("base_load", "unknown")
             interval = data.get("scan_interval_seconds", "unknown")
             running = data.get("running", False)
 
@@ -164,6 +165,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 f"integration_version: {INTEGRATION_VERSION}\n"
                 f"running: {running}\n"
                 f"base_load_entity: {base_load_entity}\n"
+                f"base_load_current_w: {base_load_current}\n"
                 f"scan_interval_seconds: {interval}\n\n"
                 f"producers:\n{producer_lines}\n\n"
                 f"consumers:\n{consumer_lines}"
