@@ -231,9 +231,18 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
-            total_production = sum(
-                self._state_float(p["entity_id"]) for p in self._producers
-            )
+            producer_states: dict[str, dict[str, Any]] = {}
+            total_production = 0.0
+            for p in self._producers:
+                name = p.get("name", "unknown")
+                entity_id = p.get("entity_id", "")
+                current_power = self._state_float(entity_id)
+                total_production += current_power
+                producer_states[name] = {
+                    "entity_id": entity_id,
+                    "power": current_power,
+                }
+
             base_load = self._state_float(self._base_load_entity)
             surplus = total_production - base_load
 
@@ -293,6 +302,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "surplus": surplus,
                 "consumer_states": consumer_states,
                 "producers": self._producers,
+                "producer_states": producer_states,
                 "consumers": self._consumers,
                 "unit": UnitOfPower.WATT,
                 "device_class": SensorDeviceClass.POWER,

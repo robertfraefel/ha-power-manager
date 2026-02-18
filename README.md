@@ -71,7 +71,7 @@ Use **Developer Tools → Actions** and call these services:
 - Remove consumer: `power_manager.remove_consumer`
 - Show current consumers: `power_manager.get_consumers`
 - Show current producers: `power_manager.get_producers`
-- Show full config: `power_manager.get_config`
+- Show full config: `power_manager.get_config` (includes producer live watts)
 - Show loaded version: `power_manager.get_version`
 - Show base load entity: `power_manager.get_base_load_entity`
 - Update base load entity: `power_manager.update_base_load_entity`

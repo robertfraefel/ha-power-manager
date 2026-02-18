@@ -145,6 +145,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         if coordinator:
             data = coordinator.data or {}
             producers = data.get("producers", [])
+            producer_states = data.get("producer_states", {})
             consumers = data.get("consumers", [])
             base_load_entity = data.get("base_load_entity", "unknown")
             base_load_current = data.get("base_load", "unknown")
@@ -152,7 +153,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             running = data.get("running", False)
 
             producer_lines = "\n".join(
-                [f"  - {p.get('name')} ({p.get('entity_id')})" for p in producers]
+                [
+                    f"  - {p.get('name')} | entity={p.get('entity_id')} | current_w={producer_states.get(p.get('name'), {}).get('power', 'unknown')}"
+                    for p in producers
+                ]
             ) or "  - none"
             consumer_lines = "\n".join(
                 [
