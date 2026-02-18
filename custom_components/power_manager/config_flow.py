@@ -18,7 +18,7 @@ from .const import (
 
 
 class PowerManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 1
+    VERSION = 2
 
     async def async_step_user(self, user_input=None):
         errors = {}

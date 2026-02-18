@@ -190,3 +190,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unloaded:
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unloaded
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    # Keep compatibility across config flow revisions.
+    if entry.version > 2:
+        return False
+
+    if entry.version < 2:
+        hass.config_entries.async_update_entry(entry, version=2)
+
+    return True
