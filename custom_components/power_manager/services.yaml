@@ -155,3 +155,7 @@ remove_consumer:
 get_consumers:
   name: Get consumers
   description: Show current configured consumers in a persistent notification.
+
+get_producers:
+  name: Get producers
+  description: Show current configured producers in a persistent notification.

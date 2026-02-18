@@ -17,6 +17,7 @@ SERVICE_ADD_CONSUMER = "add_consumer"
 SERVICE_UPDATE_CONSUMER = "update_consumer"
 SERVICE_REMOVE_CONSUMER = "remove_consumer"
 SERVICE_GET_CONSUMERS = "get_consumers"
+SERVICE_GET_PRODUCERS = "get_producers"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -111,6 +112,30 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 blocking=True,
             )
 
+    async def _get_producers(call: ServiceCall):
+        coordinator = _coordinator()
+        if coordinator:
+            producers = coordinator.data.get("producers", []) if coordinator.data else []
+            text = "\n".join(
+                [
+                    f"- {p.get('name')} | entity={p.get('entity_id')}"
+                    for p in producers
+                ]
+            )
+            if not text:
+                text = "No producers configured."
+
+            await hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": "Power Manager - Producers",
+                    "message": text,
+                    "notification_id": "power_manager_producers",
+                },
+                blocking=True,
+            )
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_SET_RUNNING,
@@ -197,6 +222,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         DOMAIN,
         SERVICE_GET_CONSUMERS,
         _get_consumers,
+        schema=vol.Schema({}),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_PRODUCERS,
+        _get_producers,
         schema=vol.Schema({}),
     )
 
