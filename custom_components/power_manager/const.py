@@ -6,6 +6,8 @@ CONF_BASE_LOAD_ENTITY = "base_load_entity"
 CONF_PRODUCERS = "producers"
 CONF_CONSUMERS = "consumers"
 
+INTEGRATION_VERSION = "0.1.0+12"
+
 DEFAULT_SCAN_INTERVAL = 10
 
 MODE_AUTO = "auto"

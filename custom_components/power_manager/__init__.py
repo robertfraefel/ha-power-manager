@@ -5,7 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 
-from .const import DOMAIN, PLATFORMS, VALID_MODES
+from .const import DOMAIN, INTEGRATION_VERSION, PLATFORMS, VALID_MODES
 from .coordinator import PowerManagerCoordinator
 
 SERVICE_SET_RUNNING = "set_running"
@@ -19,6 +19,7 @@ SERVICE_REMOVE_CONSUMER = "remove_consumer"
 SERVICE_GET_CONSUMERS = "get_consumers"
 SERVICE_GET_PRODUCERS = "get_producers"
 SERVICE_GET_CONFIG = "get_config"
+SERVICE_GET_VERSION = "get_version"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -158,6 +159,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             ) or "  - none"
 
             text = (
+                f"integration_version: {INTEGRATION_VERSION}\n"
                 f"running: {running}\n"
                 f"base_load_entity: {base_load_entity}\n"
                 f"scan_interval_seconds: {interval}\n\n"
@@ -270,10 +272,28 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         _get_producers,
         schema=vol.Schema({}),
     )
+    async def _get_version(call: ServiceCall):
+        await hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "title": "Power Manager - Version",
+                "message": f"integration_version: {INTEGRATION_VERSION}",
+                "notification_id": "power_manager_version",
+            },
+            blocking=True,
+        )
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_GET_CONFIG,
         _get_config,
+        schema=vol.Schema({}),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_VERSION,
+        _get_version,
         schema=vol.Schema({}),
     )
 

@@ -163,3 +163,7 @@ get_producers:
 get_config:
   name: Get full config
   description: Show full current power manager config in a persistent notification.
+
+get_version:
+  name: Get version
+  description: Show loaded integration version in a persistent notification.
