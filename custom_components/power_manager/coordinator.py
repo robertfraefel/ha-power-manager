@@ -281,6 +281,8 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             return {
                 "running": self.running,
+                "base_load_entity": self._base_load_entity,
+                "scan_interval_seconds": int(self.update_interval.total_seconds()),
                 "total_production": total_production,
                 "base_load": base_load,
                 "surplus": surplus,

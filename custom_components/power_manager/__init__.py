@@ -18,6 +18,7 @@ SERVICE_UPDATE_CONSUMER = "update_consumer"
 SERVICE_REMOVE_CONSUMER = "remove_consumer"
 SERVICE_GET_CONSUMERS = "get_consumers"
 SERVICE_GET_PRODUCERS = "get_producers"
+SERVICE_GET_CONFIG = "get_config"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -136,6 +137,45 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 blocking=True,
             )
 
+    async def _get_config(call: ServiceCall):
+        coordinator = _coordinator()
+        if coordinator:
+            data = coordinator.data or {}
+            producers = data.get("producers", [])
+            consumers = data.get("consumers", [])
+            base_load_entity = data.get("base_load_entity", "unknown")
+            interval = data.get("scan_interval_seconds", "unknown")
+            running = data.get("running", False)
+
+            producer_lines = "\n".join(
+                [f"  - {p.get('name')} ({p.get('entity_id')})" for p in producers]
+            ) or "  - none"
+            consumer_lines = "\n".join(
+                [
+                    f"  - {c.get('name')} | switch={c.get('switch_entity')} | power={c.get('power_entity')} | prio={c.get('priority')} | expected={c.get('expected_power')}W | min={c.get('min_run_minutes')}min"
+                    for c in consumers
+                ]
+            ) or "  - none"
+
+            text = (
+                f"running: {running}\n"
+                f"base_load_entity: {base_load_entity}\n"
+                f"scan_interval_seconds: {interval}\n\n"
+                f"producers:\n{producer_lines}\n\n"
+                f"consumers:\n{consumer_lines}"
+            )
+
+            await hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": "Power Manager - Full Config",
+                    "message": text,
+                    "notification_id": "power_manager_config",
+                },
+                blocking=True,
+            )
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_SET_RUNNING,
@@ -228,6 +268,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         DOMAIN,
         SERVICE_GET_PRODUCERS,
         _get_producers,
+        schema=vol.Schema({}),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_CONFIG,
+        _get_config,
         schema=vol.Schema({}),
     )
 

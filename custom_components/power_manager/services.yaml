@@ -159,3 +159,7 @@ get_consumers:
 get_producers:
   name: Get producers
   description: Show current configured producers in a persistent notification.
+
+get_config:
+  name: Get full config
+  description: Show full current power manager config in a persistent notification.
