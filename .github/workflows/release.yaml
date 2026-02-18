@@ -1,0 +1,11 @@
+name: Release (manual)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "Create a tag/release from GitHub UI when ready."

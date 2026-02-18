@@ -3,11 +3,35 @@
     "step": {
       "user": {
         "title": "Power Manager",
-        "description": "Configure producers and consumers as JSON arrays."
+        "description": "Configure base settings and how many producers/consumers to add."
+      },
+      "producer": {
+        "title": "Add producer",
+        "description": "Producer {index} of {count}"
+      },
+      "consumer": {
+        "title": "Add consumer",
+        "description": "Consumer {index} of {count}"
       }
-    },
-    "error": {
-      "invalid_json": "Invalid JSON."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Power Manager options"
+      },
+      "edit_entities": {
+        "title": "Producer/consumer list"
+      },
+      "add_counts": {
+        "title": "Reset list sizes"
+      },
+      "add_producer": {
+        "title": "Add producer"
+      },
+      "add_consumer": {
+        "title": "Add consumer"
+      }
     }
   }
 }
