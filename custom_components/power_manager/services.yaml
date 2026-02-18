@@ -23,3 +23,117 @@ set_consumer_mode:
             - auto
             - force_on
             - force_off
+
+add_producer:
+  name: Add producer
+  description: Add a producer power entity.
+  fields:
+    name:
+      required: true
+      selector:
+        text:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          domain: sensor
+
+remove_producer:
+  name: Remove producer
+  description: Remove producer by name.
+  fields:
+    name:
+      required: true
+      selector:
+        text:
+
+add_consumer:
+  name: Add consumer
+  description: Add a new consumer.
+  fields:
+    name:
+      required: true
+      selector:
+        text:
+    switch_entity:
+      required: true
+      selector:
+        entity:
+          domain: switch
+    power_entity:
+      required: true
+      selector:
+        entity:
+          domain: sensor
+    priority:
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 999
+          mode: box
+    expected_power:
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+          unit_of_measurement: W
+    min_run_minutes:
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+          unit_of_measurement: min
+
+update_consumer:
+  name: Update consumer
+  description: Update fields of an existing consumer.
+  fields:
+    name:
+      required: true
+      selector:
+        text:
+    switch_entity:
+      selector:
+        entity:
+          domain: switch
+    power_entity:
+      selector:
+        entity:
+          domain: sensor
+    priority:
+      selector:
+        number:
+          min: 1
+          max: 999
+          mode: box
+    expected_power:
+      selector:
+        number:
+          min: 0
+          mode: box
+          unit_of_measurement: W
+    min_run_minutes:
+      selector:
+        number:
+          min: 0
+          mode: box
+          unit_of_measurement: min
+    mode:
+      selector:
+        select:
+          options:
+            - auto
+            - force_on
+            - force_off
+
+remove_consumer:
+  name: Remove consumer
+  description: Remove consumer by name.
+  fields:
+    name:
+      required: true
+      selector:
+        text:

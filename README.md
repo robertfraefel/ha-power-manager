@@ -8,9 +8,15 @@ A native Home Assistant custom integration that replaces the Power-Manager_BackE
 - Periodic surplus control loop
 - Consumer priority + minimum runtime lock
 - Manual consumer modes: `auto`, `force_on`, `force_off`
+- Persistent configuration storage (survives Home Assistant restarts)
 - Services:
   - `power_manager.set_running`
   - `power_manager.set_consumer_mode`
+  - `power_manager.add_producer`
+  - `power_manager.remove_producer`
+  - `power_manager.add_consumer`
+  - `power_manager.update_consumer`
+  - `power_manager.remove_consumer`
 - Entities:
   - `switch.power_manager_running`
   - `sensor.power_manager_total_production`
@@ -46,7 +52,19 @@ A native Home Assistant custom integration that replaces the Power-Manager_BackE
 ]
 ```
 
+## Managing devices (add/update/delete)
+
+Use **Developer Tools → Actions** and call these services:
+
+- Add producer: `power_manager.add_producer`
+- Remove producer: `power_manager.remove_producer`
+- Add consumer: `power_manager.add_consumer`
+- Update consumer: `power_manager.update_consumer`
+- Remove consumer: `power_manager.remove_consumer`
+
+Changes are persisted immediately and applied without re-adding the integration.
+
 ## Notes
 
-- This first release focuses on scheduler logic and services.
-- Next step can add a richer UI editor for producers/consumers and full diagnostics.
+- Device management is currently service-driven (no dedicated Lovelace editor card yet).
+- A richer visual editor can be added in a next release.
