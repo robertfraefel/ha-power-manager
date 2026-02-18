@@ -1,0 +1,25 @@
+set_running:
+  name: Set running state
+  description: Start/stop the power manager control loop.
+  fields:
+    running:
+      required: true
+      selector:
+        boolean:
+
+set_consumer_mode:
+  name: Set consumer mode
+  description: Set mode of a configured consumer.
+  fields:
+    consumer:
+      required: true
+      selector:
+        text:
+    mode:
+      required: true
+      selector:
+        select:
+          options:
+            - auto
+            - force_on
+            - force_off

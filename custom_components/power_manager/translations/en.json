@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Power Manager",
+        "description": "Configure producers and consumers as JSON arrays."
+      }
+    },
+    "error": {
+      "invalid_json": "Invalid JSON."
+    }
+  }
+}
