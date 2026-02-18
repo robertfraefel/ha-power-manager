@@ -167,3 +167,17 @@ get_config:
 get_version:
   name: Get version
   description: Show loaded integration version in a persistent notification.
+
+get_base_load_entity:
+  name: Get base load entity
+  description: Show currently configured base load entity.
+
+update_base_load_entity:
+  name: Update base load entity
+  description: Update the configured base load entity.
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          domain: sensor

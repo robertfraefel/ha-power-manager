@@ -22,6 +22,8 @@ A native Home Assistant custom integration that replaces the Power-Manager_BackE
   - `power_manager.get_producers`
   - `power_manager.get_config`
   - `power_manager.get_version`
+  - `power_manager.get_base_load_entity`
+  - `power_manager.update_base_load_entity`
 - Entities:
   - `switch.power_manager_running`
   - `sensor.power_manager_total_production`
@@ -71,6 +73,8 @@ Use **Developer Tools → Actions** and call these services:
 - Show current producers: `power_manager.get_producers`
 - Show full config: `power_manager.get_config`
 - Show loaded version: `power_manager.get_version`
+- Show base load entity: `power_manager.get_base_load_entity`
+- Update base load entity: `power_manager.update_base_load_entity`
 
 Changes are persisted immediately and applied without re-adding the integration.
 

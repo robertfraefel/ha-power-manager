@@ -132,6 +132,11 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_save()
         await self.async_request_refresh()
 
+    async def async_update_base_load_entity(self, entity_id: str) -> None:
+        self._base_load_entity = entity_id
+        await self._async_save()
+        await self.async_request_refresh()
+
     async def async_add_producer(self, name: str, entity_id: str) -> None:
         if self._find_idx_by_name(self._producers, name) >= 0:
             raise UpdateFailed(f"producer already exists: {name}")

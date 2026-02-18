@@ -20,6 +20,8 @@ SERVICE_GET_CONSUMERS = "get_consumers"
 SERVICE_GET_PRODUCERS = "get_producers"
 SERVICE_GET_CONFIG = "get_config"
 SERVICE_GET_VERSION = "get_version"
+SERVICE_GET_BASE_LOAD_ENTITY = "get_base_load_entity"
+SERVICE_UPDATE_BASE_LOAD_ENTITY = "update_base_load_entity"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -284,6 +286,27 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             blocking=True,
         )
 
+    async def _get_base_load_entity(call: ServiceCall):
+        coordinator = _coordinator()
+        if coordinator:
+            data = coordinator.data or {}
+            entity = data.get("base_load_entity", "unknown")
+            await hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": "Power Manager - Base Load Entity",
+                    "message": f"base_load_entity: {entity}",
+                    "notification_id": "power_manager_base_load_entity",
+                },
+                blocking=True,
+            )
+
+    async def _update_base_load_entity(call: ServiceCall):
+        coordinator = _coordinator()
+        if coordinator:
+            await coordinator.async_update_base_load_entity(call.data["entity_id"])
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_GET_CONFIG,
@@ -295,6 +318,18 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_GET_VERSION,
         _get_version,
         schema=vol.Schema({}),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_BASE_LOAD_ENTITY,
+        _get_base_load_entity,
+        schema=vol.Schema({}),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_UPDATE_BASE_LOAD_ENTITY,
+        _update_base_load_entity,
+        schema=vol.Schema({vol.Required("entity_id"): cv.entity_id}),
     )
 
     return True
