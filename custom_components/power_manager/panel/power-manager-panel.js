@@ -21,15 +21,38 @@ class PowerManagerPanel extends HTMLElement {
     return this._hass.callWS({ type, ...extra });
   }
 
+  _entitiesByDomain(domain) {
+    return Object.keys(this._hass?.states || {})
+      .filter((entityId) => entityId.startsWith(`${domain}.`))
+      .sort();
+  }
+
+  _selectOptions(options, selected = "") {
+    const normalizedSelected = selected || "";
+    const all = [...options];
+    if (normalizedSelected && !all.includes(normalizedSelected)) {
+      all.unshift(normalizedSelected);
+    }
+
+    return ["<option value=''>-- choose --</option>"]
+      .concat(
+        all.map((value) => {
+          const isSelected = value === normalizedSelected ? "selected" : "";
+          return `<option value="${value}" ${isSelected}>${value}</option>`;
+        })
+      )
+      .join("");
+  }
+
   _renderShell() {
     this.innerHTML = `
       <style>
         .wrap { padding: 16px; font-family: var(--primary-font-family); }
         h2, h3 { margin: 8px 0; }
         table { width: 100%; border-collapse: collapse; margin: 10px 0 20px; }
-        th, td { border-bottom: 1px solid var(--divider-color); padding: 8px; text-align: left; }
+        th, td { border-bottom: 1px solid var(--divider-color); padding: 8px; text-align: left; vertical-align: middle; }
         .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; align-items: center; }
-        input, select { padding: 6px; min-width: 160px; }
+        input, select { padding: 6px; min-width: 220px; max-width: 420px; }
         button { padding: 8px 10px; cursor: pointer; }
         .card { border: 1px solid var(--divider-color); border-radius: 12px; padding: 12px; margin: 12px 0; }
         .small { opacity: 0.8; font-size: 12px; }
@@ -46,7 +69,7 @@ class PowerManagerPanel extends HTMLElement {
           </table>
           <div class="row">
             <input id="newProdName" placeholder="name" />
-            <input id="newProdEntity" placeholder="sensor.xxx" />
+            <select id="newProdEntity"></select>
             <button id="addProd">Add producer</button>
           </div>
         </div>
@@ -61,8 +84,8 @@ class PowerManagerPanel extends HTMLElement {
           </table>
           <div class="row">
             <input id="newConName" placeholder="name" />
-            <input id="newConSwitch" placeholder="switch.xxx" />
-            <input id="newConPower" placeholder="sensor.xxx" />
+            <select id="newConSwitch"></select>
+            <select id="newConPower"></select>
             <input id="newConPrio" type="number" placeholder="priority" />
             <input id="newConExpected" type="number" placeholder="expected W" />
             <input id="newConMin" type="number" placeholder="min minutes" />
@@ -70,7 +93,7 @@ class PowerManagerPanel extends HTMLElement {
           </div>
         </div>
 
-        <div class="small">Inline edits are saved per row with the Save button.</div>
+        <div class="small">Entity/switch/power fields are selectable dropdowns. Inline edits are saved per row.</div>
       </div>
     `;
   }
@@ -101,6 +124,13 @@ class PowerManagerPanel extends HTMLElement {
     const data = await this._ws('power_manager/get_config');
     this._data = data;
 
+    const sensorEntities = this._entitiesByDomain('sensor');
+    const switchEntities = this._entitiesByDomain('switch');
+
+    this.querySelector('#newProdEntity').innerHTML = this._selectOptions(sensorEntities);
+    this.querySelector('#newConSwitch').innerHTML = this._selectOptions(switchEntities);
+    this.querySelector('#newConPower').innerHTML = this._selectOptions(sensorEntities);
+
     this.querySelector('#summary').innerHTML = `
       <div><b>Version:</b> ${data.integration_version}</div>
       <div><b>Running:</b> ${data.running}</div>
@@ -110,7 +140,9 @@ class PowerManagerPanel extends HTMLElement {
         <tbody>
           <tr>
             <td>Base load</td>
-            <td><input id="baseEntity" placeholder="sensor.house_total_power" value="${data.base_load_entity || ''}" /></td>
+            <td>
+              <select id="baseEntity">${this._selectOptions(sensorEntities, data.base_load_entity || '')}</select>
+            </td>
             <td>${data.base_load_current_w}</td>
             <td>
               <button id="saveBase">Save</button>
@@ -142,7 +174,7 @@ class PowerManagerPanel extends HTMLElement {
       const current = (data.producer_states || {})[p.name]?.power ?? 'n/a';
       tr.innerHTML = `
         <td>${p.name}</td>
-        <td><input data-k="entity" value="${p.entity_id || ''}" /></td>
+        <td><select data-k="entity">${this._selectOptions(sensorEntities, p.entity_id || '')}</select></td>
         <td>${current}</td>
         <td>
           <button data-a="save">Save</button>
@@ -167,8 +199,8 @@ class PowerManagerPanel extends HTMLElement {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${c.name}</td>
-        <td><input data-k="switch" value="${c.switch_entity || ''}" /></td>
-        <td><input data-k="power" value="${c.power_entity || ''}" /></td>
+        <td><select data-k="switch">${this._selectOptions(switchEntities, c.switch_entity || '')}</select></td>
+        <td><select data-k="power">${this._selectOptions(sensorEntities, c.power_entity || '')}</select></td>
         <td><input data-k="priority" type="number" value="${c.priority ?? 1}" /></td>
         <td><input data-k="expected" type="number" value="${c.expected_power ?? 0}" /></td>
         <td><input data-k="min" type="number" value="${c.min_run_minutes ?? 0}" /></td>
