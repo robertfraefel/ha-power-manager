@@ -255,11 +255,13 @@ class PowerManagerPanel extends HTMLElement {
       const tr = document.createElement('tr');
       const currentWFromCoordinator = (data.consumer_states || {})[c.name]?.power;
       const powerEntityId = (c.power_entity || '').trim();
-      const currentWFromHass = powerEntityId ? this._hass?.states?.[powerEntityId]?.state : undefined;
-      const currentW =
-        currentWFromCoordinator !== undefined && currentWFromCoordinator !== null
-          ? Number(currentWFromCoordinator).toFixed(1)
-          : (currentWFromHass ?? 'n/a');
+      const stateObj = powerEntityId ? this._hass?.states?.[powerEntityId] : undefined;
+      const hassStateNum = stateObj ? Number(stateObj.state) : NaN;
+      const coordNum = Number(currentWFromCoordinator);
+      const displayNum = Number.isFinite(hassStateNum)
+        ? hassStateNum
+        : (Number.isFinite(coordNum) ? coordNum : NaN);
+      const currentW = Number.isFinite(displayNum) ? displayNum.toFixed(1) : 'n/a';
       tr.innerHTML = `
         <td><input data-k="name" value="${c.name}" /></td>
         <td><input data-k="switch" list="switchEntitiesList" value="${c.switch_entity || ''}" placeholder="switch.xxx" /></td>
