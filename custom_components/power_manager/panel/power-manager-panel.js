@@ -94,7 +94,7 @@ class PowerManagerPanel extends HTMLElement {
           <h3>Consumers</h3>
           <table>
             <thead>
-              <tr><th>Name</th><th>Switch</th><th>Power sensor</th><th>Current W</th><th>Priority</th><th>Expected W</th><th>Min min</th><th>Mode</th><th></th></tr>
+              <tr><th>Name</th><th>Switch</th><th>Power sensor</th><th>Current W</th><th>Priority</th><th>Expected W</th><th>Min min</th><th>Mode</th><th>Condition state</th><th></th></tr>
             </thead>
             <tbody id="consRows"></tbody>
           </table>
@@ -153,6 +153,9 @@ class PowerManagerPanel extends HTMLElement {
     this.querySelector('#summary').innerHTML = `
       <div><b>Version:</b> ${data.integration_version}</div>
       <div><b>Running:</b> ${data.running}</div>
+      <div><b>Total production:</b> ${Number(data.total_production || 0).toFixed(1)} W</div>
+      <div><b>Base load:</b> ${Number(data.base_load || 0).toFixed(1)} W</div>
+      <div><b>Surplus:</b> ${Number(data.surplus || 0).toFixed(1)} W</div>
       <div><b>Scan interval:</b> ${data.scan_interval_seconds}s</div>
       <table>
         <thead><tr><th>Name</th><th>Entity</th><th>Current W</th><th></th></tr></thead>
@@ -212,6 +215,36 @@ class PowerManagerPanel extends HTMLElement {
       prodRows.appendChild(tr);
     });
 
+    const conditionByConsumer = {};
+    let remainingSurplus = Number(data.surplus || 0);
+    const nowTs = Date.now() / 1000;
+    const sortedForDecision = [...(data.consumers || [])].sort(
+      (a, b) => Number(a.priority ?? 999) - Number(b.priority ?? 999)
+    );
+    sortedForDecision.forEach((c) => {
+      const state = (data.consumer_states || {})[c.name] || {};
+      const mode = state.mode || c.mode || 'auto';
+      const expected = Number(c.expected_power || 0);
+      const holdActive = Number(state.on_until || 0) > nowTs;
+
+      let reason = 'auto: off';
+      if (mode === 'force_on') {
+        reason = 'force_on';
+      } else if (mode === 'force_off') {
+        reason = 'force_off';
+      } else if (remainingSurplus >= expected) {
+        reason = `auto: surplus ok (${remainingSurplus.toFixed(1)}W ≥ ${expected.toFixed(1)}W)`;
+        remainingSurplus -= expected;
+      } else if (holdActive) {
+        const secLeft = Math.max(0, Math.round(Number(state.on_until || 0) - nowTs));
+        reason = `auto: min-run hold (${secLeft}s left)`;
+      } else {
+        reason = `auto: no surplus (${remainingSurplus.toFixed(1)}W < ${expected.toFixed(1)}W)`;
+      }
+
+      conditionByConsumer[c.name] = reason;
+    });
+
     const consRows = this.querySelector('#consRows');
     consRows.innerHTML = '';
     (data.consumers || []).forEach((c) => {
@@ -232,6 +265,7 @@ class PowerManagerPanel extends HTMLElement {
             <option value="force_off">force_off</option>
           </select>
         </td>
+        <td>${conditionByConsumer[c.name] || 'n/a'}</td>
         <td>
           <button data-a="save">Save</button>
           <button data-a="del">Delete</button>
