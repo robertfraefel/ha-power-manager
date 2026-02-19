@@ -77,7 +77,11 @@ async def _register_panel(hass: HomeAssistant) -> None:
         frontend_url_path=PANEL_URL_PATH,
         config={
             "module_url": f"{PANEL_STATIC_URL}/{PANEL_JS_NAME}",
+            "js_url": f"{PANEL_STATIC_URL}/{PANEL_JS_NAME}",
             "name": "power-manager-panel",
+            "webcomponent_name": "power-manager-panel",
+            "embed_iframe": False,
+            "trust_external": False,
         },
         require_admin=True,
     )

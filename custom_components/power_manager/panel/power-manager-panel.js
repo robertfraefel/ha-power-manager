@@ -1,4 +1,12 @@
 class PowerManagerPanel extends HTMLElement {
+  connectedCallback() {
+    if (!this._initialized) {
+      this._renderShell();
+      this._bind();
+      this._initialized = true;
+    }
+  }
+
   set hass(hass) {
     this._hass = hass;
     if (!this._initialized) {
