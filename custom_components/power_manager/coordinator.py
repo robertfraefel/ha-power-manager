@@ -259,22 +259,22 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             consumer_states: dict[str, dict[str, Any]] = {}
 
             self._sync_runtime()
-            if self.running:
-                sorted_consumers = sorted(
-                    self._consumers,
-                    key=lambda c: int(c.get("priority", 999)),
-                )
+            sorted_consumers = sorted(
+                self._consumers,
+                key=lambda c: int(c.get("priority", 999)),
+            )
 
-                now = self.hass.loop.time()
-                for c in sorted_consumers:
-                    name = c["name"]
-                    switch_entity = c["switch_entity"]
-                    expected = float(c.get("expected_power", 0))
-                    min_run_minutes = float(c.get("min_run_minutes", 0))
-                    runtime = self._runtime.setdefault(name, ConsumerRuntime())
+            now = self.hass.loop.time()
+            for c in sorted_consumers:
+                name = c["name"]
+                switch_entity = c["switch_entity"]
+                expected = float(c.get("expected_power", 0))
+                min_run_minutes = float(c.get("min_run_minutes", 0))
+                runtime = self._runtime.setdefault(name, ConsumerRuntime())
 
-                    current_power = self._state_float(c.get("power_entity", ""))
+                current_power = self._state_float(c.get("power_entity", ""))
 
+                if self.running:
                     should_on = False
                     if runtime.mode == MODE_FORCE_ON:
                         should_on = True
@@ -296,12 +296,12 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     elif runtime.on_until_ts <= now:
                         await self._set_switch(switch_entity, False)
 
-                    consumer_states[name] = {
-                        "power": current_power,
-                        "mode": runtime.mode,
-                        "on_until": runtime.on_until_ts,
-                        "switch_entity": switch_entity,
-                    }
+                consumer_states[name] = {
+                    "power": current_power,
+                    "mode": runtime.mode,
+                    "on_until": runtime.on_until_ts,
+                    "switch_entity": switch_entity,
+                }
 
             return {
                 "running": self.running,
