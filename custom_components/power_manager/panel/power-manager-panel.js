@@ -104,18 +104,33 @@ class PowerManagerPanel extends HTMLElement {
     this.querySelector('#summary').innerHTML = `
       <div><b>Version:</b> ${data.integration_version}</div>
       <div><b>Running:</b> ${data.running}</div>
-      <div class="row">
-        <b>Base load entity:</b>
-        <input id="baseEntity" placeholder="sensor.house_total_power" value="${data.base_load_entity || ''}" />
-        <button id="saveBase">Save</button>
-      </div>
-      <div><b>Base load current W:</b> ${data.base_load_current_w}</div>
       <div><b>Scan interval:</b> ${data.scan_interval_seconds}s</div>
+      <table>
+        <thead><tr><th>Name</th><th>Entity</th><th>Current W</th><th></th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Base load</td>
+            <td><input id="baseEntity" placeholder="sensor.house_total_power" value="${data.base_load_entity || ''}" /></td>
+            <td>${data.base_load_current_w}</td>
+            <td>
+              <button id="saveBase">Save</button>
+              <button id="delBase">Delete</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     `;
 
     this.querySelector('#saveBase').onclick = async () => {
       await this._ws('power_manager/set_base', {
         base_load_entity: this.querySelector('#baseEntity').value.trim(),
+      });
+      await this._load();
+    };
+
+    this.querySelector('#delBase').onclick = async () => {
+      await this._ws('power_manager/set_base', {
+        base_load_entity: '',
       });
       await this._load();
     };
