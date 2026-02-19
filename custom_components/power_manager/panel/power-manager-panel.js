@@ -150,12 +150,16 @@ class PowerManagerPanel extends HTMLElement {
       .map((value) => `<option value="${value}"></option>`)
       .join('');
 
+    const summaryTotalProduction = Number(data.total_production ?? 0);
+    const summaryBaseLoad = Number(data.base_load ?? data.base_load_current_w ?? 0);
+    const summarySurplus = Number(data.surplus ?? (summaryTotalProduction - summaryBaseLoad));
+
     this.querySelector('#summary').innerHTML = `
       <div><b>Version:</b> ${data.integration_version}</div>
       <div><b>Running:</b> ${data.running}</div>
-      <div><b>Total production:</b> ${Number(data.total_production || 0).toFixed(1)} W</div>
-      <div><b>Base load:</b> ${Number(data.base_load || 0).toFixed(1)} W</div>
-      <div><b>Surplus:</b> ${Number(data.surplus || 0).toFixed(1)} W</div>
+      <div><b>Total production:</b> ${Number.isFinite(summaryTotalProduction) ? summaryTotalProduction.toFixed(1) : 'n/a'} W</div>
+      <div><b>Base load:</b> ${Number.isFinite(summaryBaseLoad) ? summaryBaseLoad.toFixed(1) : 'n/a'} W</div>
+      <div><b>Surplus:</b> ${Number.isFinite(summarySurplus) ? summarySurplus.toFixed(1) : 'n/a'} W</div>
       <div><b>Scan interval:</b> ${data.scan_interval_seconds}s</div>
       <table>
         <thead><tr><th>Name</th><th>Entity</th><th>Current W</th><th></th></tr></thead>
@@ -250,11 +254,12 @@ class PowerManagerPanel extends HTMLElement {
     (data.consumers || []).forEach((c) => {
       const tr = document.createElement('tr');
       const currentWFromCoordinator = (data.consumer_states || {})[c.name]?.power;
-      const currentWFromHass = this._hass?.states?.[c.power_entity]?.state;
+      const powerEntityId = (c.power_entity || '').trim();
+      const currentWFromHass = powerEntityId ? this._hass?.states?.[powerEntityId]?.state : undefined;
       const currentW =
         currentWFromCoordinator !== undefined && currentWFromCoordinator !== null
           ? Number(currentWFromCoordinator).toFixed(1)
-          : currentWFromHass ?? 'n/a';
+          : (currentWFromHass ?? 'n/a');
       tr.innerHTML = `
         <td><input data-k="name" value="${c.name}" /></td>
         <td><input data-k="switch" list="switchEntitiesList" value="${c.switch_entity || ''}" placeholder="switch.xxx" /></td>
