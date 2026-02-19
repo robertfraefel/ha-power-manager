@@ -188,6 +188,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_update_consumer(
         self,
         name: str,
+        new_name: str | None = None,
         switch_entity: str | None = None,
         power_entity: str | None = None,
         priority: int | None = None,
@@ -200,6 +201,14 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(f"unknown consumer: {name}")
 
         c = self._consumers[idx]
+
+        if new_name is not None and new_name != name:
+            if self._find_idx_by_name(self._consumers, new_name) >= 0:
+                raise UpdateFailed(f"consumer already exists: {new_name}")
+            c["name"] = new_name
+            if name in self._runtime:
+                self._runtime[new_name] = self._runtime.pop(name)
+
         if switch_entity is not None:
             c["switch_entity"] = switch_entity
         if power_entity is not None:
@@ -214,7 +223,8 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if mode is not None:
             if mode not in VALID_MODES:
                 raise UpdateFailed(f"invalid mode: {mode}")
-            self._runtime.setdefault(name, ConsumerRuntime()).mode = mode
+            runtime_name = new_name if new_name is not None and new_name != name else name
+            self._runtime.setdefault(runtime_name, ConsumerRuntime()).mode = mode
 
         self._sync_runtime()
         await self._async_save()

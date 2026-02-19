@@ -200,6 +200,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
         {
             "type": "power_manager/update_consumer",
             "name": str,
+            vol.Optional("new_name"): str,
             vol.Optional("switch_entity"): str,
             vol.Optional("power_entity"): str,
             vol.Optional("priority"): int,
@@ -216,6 +217,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
             return
         await coordinator.async_update_consumer(
             name=msg["name"],
+            new_name=msg.get("new_name"),
             switch_entity=msg.get("switch_entity"),
             power_entity=msg.get("power_entity"),
             priority=msg.get("priority"),

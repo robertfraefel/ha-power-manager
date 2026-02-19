@@ -256,7 +256,7 @@ class PowerManagerPanel extends HTMLElement {
           ? Number(currentWFromCoordinator).toFixed(1)
           : currentWFromHass ?? 'n/a';
       tr.innerHTML = `
-        <td>${c.name}</td>
+        <td><input data-k="name" value="${c.name}" /></td>
         <td><input data-k="switch" list="switchEntitiesList" value="${c.switch_entity || ''}" placeholder="switch.xxx" /></td>
         <td><input data-k="power" list="sensorEntitiesList" value="${c.power_entity || ''}" placeholder="sensor.xxx" /></td>
         <td>${currentW}</td>
@@ -280,6 +280,7 @@ class PowerManagerPanel extends HTMLElement {
       tr.querySelector('[data-a="save"]').onclick = async () => {
         await this._ws('power_manager/update_consumer', {
           name: c.name,
+          new_name: tr.querySelector('[data-k="name"]').value.trim(),
           switch_entity: tr.querySelector('[data-k="switch"]').value.trim(),
           power_entity: tr.querySelector('[data-k="power"]').value.trim(),
           priority: Number(tr.querySelector('[data-k="priority"]').value || 1),
