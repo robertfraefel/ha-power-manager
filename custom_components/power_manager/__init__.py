@@ -5,8 +5,8 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.components import websocket_api
-from homeassistant.components.frontend import async_register_built_in_panel
 from homeassistant.components.http import StaticPathConfig
+from homeassistant.components.panel_custom import async_register_panel
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
@@ -69,21 +69,18 @@ async def _register_panel(hass: HomeAssistant) -> None:
         ]
     )
 
-    async_register_built_in_panel(
+    await async_register_panel(
         hass,
-        component_name="custom",
+        frontend_url_path=PANEL_URL_PATH,
+        webcomponent_name="power-manager-panel",
         sidebar_title="Power Manager",
         sidebar_icon="mdi:flash",
-        frontend_url_path=PANEL_URL_PATH,
-        config={
-            "module_url": f"{PANEL_STATIC_URL}/{PANEL_JS_NAME}",
-            "js_url": f"{PANEL_STATIC_URL}/{PANEL_JS_NAME}",
-            "name": "power-manager-panel",
-            "webcomponent_name": "power-manager-panel",
-            "embed_iframe": False,
-            "trust_external": False,
-        },
+        module_url=f"{PANEL_STATIC_URL}/{PANEL_JS_NAME}",
+        js_url=f"{PANEL_STATIC_URL}/{PANEL_JS_NAME}",
+        embed_iframe=False,
+        trust_external=False,
         require_admin=True,
+        config_panel_domain=DOMAIN,
     )
     hass.data[DOMAIN]["panel_registered"] = True
 
