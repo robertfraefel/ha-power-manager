@@ -21,10 +21,22 @@ class PowerManagerPanel extends HTMLElement {
     return this._hass.callWS({ type, ...extra });
   }
 
-  _entitiesByDomain(domain) {
-    return Object.keys(this._hass?.states || {})
-      .filter((entityId) => entityId.startsWith(`${domain}.`))
-      .sort();
+  async _entitiesByDomain(domain) {
+    const stateEntities = Object.keys(this._hass?.states || {}).filter((entityId) =>
+      entityId.startsWith(`${domain}.`)
+    );
+
+    let registryEntities = [];
+    try {
+      const registry = await this._ws('config/entity_registry/list');
+      registryEntities = (registry || [])
+        .map((entry) => entry?.entity_id)
+        .filter((entityId) => entityId && entityId.startsWith(`${domain}.`));
+    } catch (_err) {
+      // Fallback to states only if entity registry WS is unavailable
+    }
+
+    return Array.from(new Set([...stateEntities, ...registryEntities])).sort();
   }
 
   _selectOptions(options, selected = "") {
@@ -124,8 +136,8 @@ class PowerManagerPanel extends HTMLElement {
     const data = await this._ws('power_manager/get_config');
     this._data = data;
 
-    const sensorEntities = this._entitiesByDomain('sensor');
-    const switchEntities = this._entitiesByDomain('switch');
+    const sensorEntities = await this._entitiesByDomain('sensor');
+    const switchEntities = await this._entitiesByDomain('switch');
 
     this.querySelector('#newProdEntity').innerHTML = this._selectOptions(sensorEntities);
     this.querySelector('#newConSwitch').innerHTML = this._selectOptions(switchEntities);
