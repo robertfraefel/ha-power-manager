@@ -249,7 +249,12 @@ class PowerManagerPanel extends HTMLElement {
     consRows.innerHTML = '';
     (data.consumers || []).forEach((c) => {
       const tr = document.createElement('tr');
-      const currentW = this._hass?.states?.[c.power_entity]?.state ?? 'n/a';
+      const currentWFromCoordinator = (data.consumer_states || {})[c.name]?.power;
+      const currentWFromHass = this._hass?.states?.[c.power_entity]?.state;
+      const currentW =
+        currentWFromCoordinator !== undefined && currentWFromCoordinator !== null
+          ? Number(currentWFromCoordinator).toFixed(1)
+          : currentWFromHass ?? 'n/a';
       tr.innerHTML = `
         <td>${c.name}</td>
         <td><input data-k="switch" list="switchEntitiesList" value="${c.switch_entity || ''}" placeholder="switch.xxx" /></td>
