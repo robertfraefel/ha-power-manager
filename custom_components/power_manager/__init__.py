@@ -5,6 +5,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.components import websocket_api
+from homeassistant.components.frontend import async_register_built_in_panel
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -68,7 +69,8 @@ async def _register_panel(hass: HomeAssistant) -> None:
         ]
     )
 
-    hass.components.frontend.async_register_built_in_panel(
+    async_register_built_in_panel(
+        hass,
         component_name="custom",
         sidebar_title="Power Manager",
         sidebar_icon="mdi:flash",
