@@ -94,7 +94,7 @@ class PowerManagerPanel extends HTMLElement {
           <h3>Consumers</h3>
           <table>
             <thead>
-              <tr><th>Name</th><th>Switch</th><th>Power sensor</th><th>Priority</th><th>Expected W</th><th>Min min</th><th>Mode</th><th></th></tr>
+              <tr><th>Name</th><th>Switch</th><th>Power sensor</th><th>Current W</th><th>Priority</th><th>Expected W</th><th>Min min</th><th>Mode</th><th></th></tr>
             </thead>
             <tbody id="consRows"></tbody>
           </table>
@@ -216,10 +216,12 @@ class PowerManagerPanel extends HTMLElement {
     consRows.innerHTML = '';
     (data.consumers || []).forEach((c) => {
       const tr = document.createElement('tr');
+      const currentW = this._hass?.states?.[c.power_entity]?.state ?? 'n/a';
       tr.innerHTML = `
         <td>${c.name}</td>
         <td><input data-k="switch" list="switchEntitiesList" value="${c.switch_entity || ''}" placeholder="switch.xxx" /></td>
         <td><input data-k="power" list="sensorEntitiesList" value="${c.power_entity || ''}" placeholder="sensor.xxx" /></td>
+        <td>${currentW}</td>
         <td><input data-k="priority" type="number" value="${c.priority ?? 1}" /></td>
         <td><input data-k="expected" type="number" value="${c.expected_power ?? 0}" /></td>
         <td><input data-k="min" type="number" value="${c.min_run_minutes ?? 0}" /></td>
