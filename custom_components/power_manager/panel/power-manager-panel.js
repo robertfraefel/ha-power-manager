@@ -28,7 +28,7 @@ class PowerManagerPanel extends HTMLElement {
         h2, h3 { margin: 8px 0; }
         table { width: 100%; border-collapse: collapse; margin: 10px 0 20px; }
         th, td { border-bottom: 1px solid var(--divider-color); padding: 8px; text-align: left; }
-        .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+        .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; align-items: center; }
         input, select { padding: 6px; min-width: 160px; }
         button { padding: 8px 10px; cursor: pointer; }
         .card { border: 1px solid var(--divider-color); border-radius: 12px; padding: 12px; margin: 12px 0; }
@@ -37,14 +37,6 @@ class PowerManagerPanel extends HTMLElement {
       <div class="wrap">
         <h2>Power Manager</h2>
         <div id="summary" class="card">Loading...</div>
-
-        <div class="card">
-          <h3>Base settings</h3>
-          <div class="row">
-            <input id="baseEntity" placeholder="sensor.house_total_power" />
-            <button id="saveBase">Save base load entity</button>
-          </div>
-        </div>
 
         <div class="card">
           <h3>Producers</h3>
@@ -84,13 +76,6 @@ class PowerManagerPanel extends HTMLElement {
   }
 
   _bind() {
-    this.querySelector('#saveBase').onclick = async () => {
-      await this._ws('power_manager/set_base', {
-        base_load_entity: this.querySelector('#baseEntity').value.trim(),
-      });
-      await this._load();
-    };
-
     this.querySelector('#addProd').onclick = async () => {
       await this._ws('power_manager/add_producer', {
         name: this.querySelector('#newProdName').value.trim(),
@@ -119,11 +104,21 @@ class PowerManagerPanel extends HTMLElement {
     this.querySelector('#summary').innerHTML = `
       <div><b>Version:</b> ${data.integration_version}</div>
       <div><b>Running:</b> ${data.running}</div>
-      <div><b>Base load entity:</b> ${data.base_load_entity}</div>
+      <div class="row">
+        <b>Base load entity:</b>
+        <input id="baseEntity" placeholder="sensor.house_total_power" value="${data.base_load_entity || ''}" />
+        <button id="saveBase">Save</button>
+      </div>
       <div><b>Base load current W:</b> ${data.base_load_current_w}</div>
       <div><b>Scan interval:</b> ${data.scan_interval_seconds}s</div>
     `;
-    this.querySelector('#baseEntity').value = data.base_load_entity || '';
+
+    this.querySelector('#saveBase').onclick = async () => {
+      await this._ws('power_manager/set_base', {
+        base_load_entity: this.querySelector('#baseEntity').value.trim(),
+      });
+      await this._load();
+    };
 
     const prodRows = this.querySelector('#prodRows');
     prodRows.innerHTML = '';
