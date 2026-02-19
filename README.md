@@ -63,12 +63,17 @@ A native Home Assistant custom integration that replaces the Power-Manager_BackE
 
 You now have two ways:
 
-1. **Integration UI (recommended)**
-   - Settings → Devices & Services → Power Manager → Configure
-   - Start screen now shows a live summary (base load, interval, producer/consumer names)
-   - Choose action: add/update/remove producer/consumer, update base settings, optional quick SCB defaults, then save
+1. **Table UI panel (Step 2)**
+   - Open sidebar: **Power Manager**
+   - Inline edit producers/consumers in table rows
+   - Add/remove rows directly
+   - Update base load entity and save
 
-2. **Developer Tools → Actions**
+2. **Integration Configure flow (Step 1)**
+   - Settings → Devices & Services → Power Manager → Configure
+   - Start screen shows summary and action-based management
+
+3. **Developer Tools → Actions**
    - Call services directly if you prefer automation/scripts
 
 - Add producer: `power_manager.add_producer`

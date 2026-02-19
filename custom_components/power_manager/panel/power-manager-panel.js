@@ -1,0 +1,191 @@
+class PowerManagerPanel extends HTMLElement {
+  set hass(hass) {
+    this._hass = hass;
+    if (!this._initialized) {
+      this._renderShell();
+      this._bind();
+      this._initialized = true;
+      this._load();
+    }
+  }
+
+  async _ws(type, extra = {}) {
+    return this._hass.callWS({ type, ...extra });
+  }
+
+  _renderShell() {
+    this.innerHTML = `
+      <style>
+        .wrap { padding: 16px; font-family: var(--primary-font-family); }
+        h2, h3 { margin: 8px 0; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0 20px; }
+        th, td { border-bottom: 1px solid var(--divider-color); padding: 8px; text-align: left; }
+        .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+        input, select { padding: 6px; min-width: 160px; }
+        button { padding: 8px 10px; cursor: pointer; }
+        .card { border: 1px solid var(--divider-color); border-radius: 12px; padding: 12px; margin: 12px 0; }
+        .small { opacity: 0.8; font-size: 12px; }
+      </style>
+      <div class="wrap">
+        <h2>Power Manager</h2>
+        <div id="summary" class="card">Loading...</div>
+
+        <div class="card">
+          <h3>Base settings</h3>
+          <div class="row">
+            <input id="baseEntity" placeholder="sensor.house_total_power" />
+            <button id="saveBase">Save base load entity</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Producers</h3>
+          <table>
+            <thead><tr><th>Name</th><th>Entity</th><th>Current W</th><th></th></tr></thead>
+            <tbody id="prodRows"></tbody>
+          </table>
+          <div class="row">
+            <input id="newProdName" placeholder="name" />
+            <input id="newProdEntity" placeholder="sensor.xxx" />
+            <button id="addProd">Add producer</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Consumers</h3>
+          <table>
+            <thead>
+              <tr><th>Name</th><th>Switch</th><th>Power sensor</th><th>Priority</th><th>Expected W</th><th>Min min</th><th>Mode</th><th></th></tr>
+            </thead>
+            <tbody id="consRows"></tbody>
+          </table>
+          <div class="row">
+            <input id="newConName" placeholder="name" />
+            <input id="newConSwitch" placeholder="switch.xxx" />
+            <input id="newConPower" placeholder="sensor.xxx" />
+            <input id="newConPrio" type="number" placeholder="priority" />
+            <input id="newConExpected" type="number" placeholder="expected W" />
+            <input id="newConMin" type="number" placeholder="min minutes" />
+            <button id="addCon">Add consumer</button>
+          </div>
+        </div>
+
+        <div class="small">Inline edits are saved per row with the Save button.</div>
+      </div>
+    `;
+  }
+
+  _bind() {
+    this.querySelector('#saveBase').onclick = async () => {
+      await this._ws('power_manager/set_base', {
+        base_load_entity: this.querySelector('#baseEntity').value.trim(),
+      });
+      await this._load();
+    };
+
+    this.querySelector('#addProd').onclick = async () => {
+      await this._ws('power_manager/add_producer', {
+        name: this.querySelector('#newProdName').value.trim(),
+        entity_id: this.querySelector('#newProdEntity').value.trim(),
+      });
+      await this._load();
+    };
+
+    this.querySelector('#addCon').onclick = async () => {
+      await this._ws('power_manager/add_consumer', {
+        name: this.querySelector('#newConName').value.trim(),
+        switch_entity: this.querySelector('#newConSwitch').value.trim(),
+        power_entity: this.querySelector('#newConPower').value.trim(),
+        priority: Number(this.querySelector('#newConPrio').value || 1),
+        expected_power: Number(this.querySelector('#newConExpected').value || 0),
+        min_run_minutes: Number(this.querySelector('#newConMin').value || 0),
+      });
+      await this._load();
+    };
+  }
+
+  async _load() {
+    const data = await this._ws('power_manager/get_config');
+    this._data = data;
+
+    this.querySelector('#summary').innerHTML = `
+      <div><b>Version:</b> ${data.integration_version}</div>
+      <div><b>Running:</b> ${data.running}</div>
+      <div><b>Base load entity:</b> ${data.base_load_entity}</div>
+      <div><b>Base load current W:</b> ${data.base_load_current_w}</div>
+      <div><b>Scan interval:</b> ${data.scan_interval_seconds}s</div>
+    `;
+    this.querySelector('#baseEntity').value = data.base_load_entity || '';
+
+    const prodRows = this.querySelector('#prodRows');
+    prodRows.innerHTML = '';
+    (data.producers || []).forEach((p) => {
+      const tr = document.createElement('tr');
+      const current = (data.producer_states || {})[p.name]?.power ?? 'n/a';
+      tr.innerHTML = `
+        <td>${p.name}</td>
+        <td><input data-k="entity" value="${p.entity_id || ''}" /></td>
+        <td>${current}</td>
+        <td>
+          <button data-a="save">Save</button>
+          <button data-a="del">Delete</button>
+        </td>
+      `;
+      tr.querySelector('[data-a="save"]').onclick = async () => {
+        const entity = tr.querySelector('[data-k="entity"]').value.trim();
+        await this._ws('power_manager/update_producer', { name: p.name, entity_id: entity });
+        await this._load();
+      };
+      tr.querySelector('[data-a="del"]').onclick = async () => {
+        await this._ws('power_manager/remove_producer', { name: p.name });
+        await this._load();
+      };
+      prodRows.appendChild(tr);
+    });
+
+    const consRows = this.querySelector('#consRows');
+    consRows.innerHTML = '';
+    (data.consumers || []).forEach((c) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${c.name}</td>
+        <td><input data-k="switch" value="${c.switch_entity || ''}" /></td>
+        <td><input data-k="power" value="${c.power_entity || ''}" /></td>
+        <td><input data-k="priority" type="number" value="${c.priority ?? 1}" /></td>
+        <td><input data-k="expected" type="number" value="${c.expected_power ?? 0}" /></td>
+        <td><input data-k="min" type="number" value="${c.min_run_minutes ?? 0}" /></td>
+        <td>
+          <select data-k="mode">
+            <option value="auto">auto</option>
+            <option value="force_on">force_on</option>
+            <option value="force_off">force_off</option>
+          </select>
+        </td>
+        <td>
+          <button data-a="save">Save</button>
+          <button data-a="del">Delete</button>
+        </td>
+      `;
+      tr.querySelector('[data-k="mode"]').value = c.mode || 'auto';
+      tr.querySelector('[data-a="save"]').onclick = async () => {
+        await this._ws('power_manager/update_consumer', {
+          name: c.name,
+          switch_entity: tr.querySelector('[data-k="switch"]').value.trim(),
+          power_entity: tr.querySelector('[data-k="power"]').value.trim(),
+          priority: Number(tr.querySelector('[data-k="priority"]').value || 1),
+          expected_power: Number(tr.querySelector('[data-k="expected"]').value || 0),
+          min_run_minutes: Number(tr.querySelector('[data-k="min"]').value || 0),
+          mode: tr.querySelector('[data-k="mode"]').value,
+        });
+        await this._load();
+      };
+      tr.querySelector('[data-a="del"]').onclick = async () => {
+        await this._ws('power_manager/remove_consumer', { name: c.name });
+        await this._load();
+      };
+      consRows.appendChild(tr);
+    });
+  }
+}
+
+customElements.define('power-manager-panel', PowerManagerPanel);
