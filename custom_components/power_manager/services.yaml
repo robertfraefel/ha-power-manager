@@ -23,6 +23,7 @@ set_consumer_mode:
             - auto
             - force_on
             - force_off
+            - deactivated
 
 add_producer:
   name: Add producer
@@ -142,6 +143,7 @@ update_consumer:
             - auto
             - force_on
             - force_off
+            - deactivated
 
 remove_consumer:
   name: Remove consumer

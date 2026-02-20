@@ -266,7 +266,9 @@ class PowerManagerPanel extends HTMLElement {
       const holdActive = Number(state.on_until || 0) > nowTs;
 
       let reason = 'auto: off';
-      if (mode === 'force_on') {
+      if (mode === 'deactivated') {
+        reason = 'deactivated';
+      } else if (mode === 'force_on') {
         reason = 'force_on';
       } else if (mode === 'force_off') {
         reason = 'force_off';
@@ -309,6 +311,7 @@ class PowerManagerPanel extends HTMLElement {
             <option value="auto">auto</option>
             <option value="force_on">force_on</option>
             <option value="force_off">force_off</option>
+            <option value="deactivated">deactivated</option>
           </select>
         </td>
         <td>${conditionByConsumer[c.name] || 'n/a'}</td>

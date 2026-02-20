@@ -135,7 +135,11 @@ async def _register_ws(hass: HomeAssistant) -> None:
         }
     )
     @websocket_api.async_response
-    async def ws_add_producer(hass, connection, msg):
+    async def ws_add_producer(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
         coordinator = _coordinator(hass)
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
@@ -151,7 +155,11 @@ async def _register_ws(hass: HomeAssistant) -> None:
         }
     )
     @websocket_api.async_response
-    async def ws_update_producer(hass, connection, msg):
+    async def ws_update_producer(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
         coordinator = _coordinator(hass)
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
@@ -166,7 +174,11 @@ async def _register_ws(hass: HomeAssistant) -> None:
         }
     )
     @websocket_api.async_response
-    async def ws_remove_producer(hass, connection, msg):
+    async def ws_remove_producer(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
         coordinator = _coordinator(hass)
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
@@ -186,7 +198,11 @@ async def _register_ws(hass: HomeAssistant) -> None:
         }
     )
     @websocket_api.async_response
-    async def ws_add_consumer(hass, connection, msg):
+    async def ws_add_consumer(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
         coordinator = _coordinator(hass)
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
@@ -215,7 +231,11 @@ async def _register_ws(hass: HomeAssistant) -> None:
         }
     )
     @websocket_api.async_response
-    async def ws_update_consumer(hass, connection, msg):
+    async def ws_update_consumer(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
         coordinator = _coordinator(hass)
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
@@ -239,7 +259,11 @@ async def _register_ws(hass: HomeAssistant) -> None:
         }
     )
     @websocket_api.async_response
-    async def ws_remove_consumer(hass, connection, msg):
+    async def ws_remove_consumer(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
         coordinator = _coordinator(hass)
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")

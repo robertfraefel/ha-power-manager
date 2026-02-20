@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -20,18 +21,28 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     MODE_AUTO,
+    MODE_DEACTIVATED,
     MODE_FORCE_OFF,
     MODE_FORCE_ON,
     VALID_MODES,
 )
 
+_LOGGER = logging.getLogger(__name__)
+
 STORAGE_VERSION = 1
+
+# Hysteresis band applied to the auto-mode turn-on/turn-off surplus threshold.
+# A consumer that is currently OFF requires surplus >= expected * (1 + factor).
+# A consumer that is currently ON stays on while surplus >= expected * (1 - factor).
+# This prevents rapid toggling when solar output fluctuates near the threshold.
+SURPLUS_HYSTERESIS_FACTOR = 0.05  # 5 %
 
 
 @dataclass
 class ConsumerRuntime:
     mode: str = MODE_AUTO
     on_until_ts: float = 0.0
+    is_on: bool = False  # tracks last-cycle on/off for hysteresis
 
 
 class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -52,7 +63,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         interval = int(merged.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
         super().__init__(
             hass,
-            logger=__import__("logging").getLogger(__name__),
+            logger=_LOGGER,
             name=DOMAIN,
             update_interval=timedelta(seconds=interval),
         )
@@ -60,6 +71,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_initialize(self) -> None:
         stored = await self._store.async_load()
         if not stored:
+            _LOGGER.debug("No stored state found, using defaults")
             return
 
         self._base_load_entity = stored.get("base_load_entity", self._base_load_entity)
@@ -77,13 +89,23 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             current_runtime[name] = ConsumerRuntime(mode=mode)
         self._runtime = current_runtime
 
+        _LOGGER.debug(
+            "Restored state: base_load_entity=%s, %d producers, %d consumers, running=%s",
+            self._base_load_entity,
+            len(self._producers),
+            len(self._consumers),
+            self.running,
+        )
+
     def _state_float(self, entity_id: str) -> float:
         st = self.hass.states.get(entity_id)
         if not st:
+            _LOGGER.debug("Entity not found or not loaded: %s", entity_id)
             return 0.0
         try:
             value = float(st.state)
-        except Exception:
+        except (ValueError, TypeError):
+            _LOGGER.debug("Cannot convert state to float for %s: %r", entity_id, st.state)
             return 0.0
 
         unit = str(st.attributes.get("unit_of_measurement", "")).strip().lower()
@@ -137,11 +159,13 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if consumer_name not in self._runtime:
             raise UpdateFailed(f"unknown consumer: {consumer_name}")
         self._runtime[consumer_name].mode = mode
+        _LOGGER.info("Consumer %r mode set to %s", consumer_name, mode)
         await self._async_save()
         await self.async_request_refresh()
 
     async def async_update_base_load_entity(self, entity_id: str) -> None:
         self._base_load_entity = entity_id
+        _LOGGER.info("Base load entity updated to %s", entity_id)
         await self._async_save()
         await self.async_request_refresh()
 
@@ -149,6 +173,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._find_idx_by_name(self._producers, name) >= 0:
             raise UpdateFailed(f"producer already exists: {name}")
         self._producers.append({"name": name, "entity_id": entity_id})
+        _LOGGER.info("Producer added: name=%r entity_id=%s", name, entity_id)
         await self._async_save()
         await self.async_request_refresh()
 
@@ -157,6 +182,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if idx < 0:
             raise UpdateFailed(f"unknown producer: {name}")
         self._producers.pop(idx)
+        _LOGGER.info("Producer removed: %r", name)
         await self._async_save()
         await self.async_request_refresh()
 
@@ -165,6 +191,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if idx < 0:
             raise UpdateFailed(f"unknown producer: {name}")
         self._producers[idx]["entity_id"] = entity_id
+        _LOGGER.info("Producer updated: name=%r entity_id=%s", name, entity_id)
         await self._async_save()
         await self.async_request_refresh()
 
@@ -190,6 +217,10 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             }
         )
         self._sync_runtime()
+        _LOGGER.info(
+            "Consumer added: name=%r switch=%s power=%s priority=%d expected=%gW min_run=%gmin",
+            name, switch_entity, power_entity, priority, expected_power, min_run_minutes,
+        )
         await self._async_save()
         await self.async_request_refresh()
 
@@ -235,6 +266,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._runtime.setdefault(runtime_name, ConsumerRuntime()).mode = mode
 
         self._sync_runtime()
+        _LOGGER.info("Consumer updated: %r", new_name or name)
         await self._async_save()
         await self.async_request_refresh()
 
@@ -244,6 +276,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(f"unknown consumer: {name}")
         self._consumers.pop(idx)
         self._sync_runtime()
+        _LOGGER.info("Consumer removed: %r", name)
         await self._async_save()
         await self.async_request_refresh()
 
@@ -265,6 +298,11 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             surplus = total_production - base_load
             remaining_surplus = surplus
 
+            _LOGGER.debug(
+                "Power update: total_production=%.1fW base_load=%.1fW surplus=%.1fW",
+                total_production, base_load, surplus,
+            )
+
             consumer_states: dict[str, dict[str, Any]] = {}
 
             self._sync_runtime()
@@ -284,16 +322,44 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 current_power = self._state_float(c.get("power_entity", ""))
 
                 if self.running:
+                    if runtime.mode == MODE_DEACTIVATED:
+                        _LOGGER.debug("Consumer %r: deactivated – skipped", name)
+                        runtime.is_on = False
+                        consumer_states[name] = {
+                            "power": current_power,
+                            "mode": runtime.mode,
+                            "on_until": runtime.on_until_ts,
+                            "switch_entity": switch_entity,
+                        }
+                        continue  # don't touch the switch; don't deduct surplus
+
                     should_on = False
+                    reason = "off: insufficient surplus"
+                    currently_on = runtime.is_on
+
                     if runtime.mode == MODE_FORCE_ON:
                         should_on = True
+                        reason = "on: force_on"
                     elif runtime.mode == MODE_FORCE_OFF:
                         should_on = False
+                        reason = "off: force_off"
                     else:
-                        if remaining_surplus >= expected:
+                        # Hysteresis: require more surplus to turn ON than to stay ON.
+                        threshold = (
+                            expected * (1.0 - SURPLUS_HYSTERESIS_FACTOR)
+                            if currently_on
+                            else expected * (1.0 + SURPLUS_HYSTERESIS_FACTOR)
+                        )
+                        if remaining_surplus >= threshold:
                             should_on = True
+                            reason = f"on: surplus {remaining_surplus:.1f}W >= {threshold:.1f}W"
                         elif runtime.on_until_ts > now:
                             should_on = True
+                            reason = f"on: holding min runtime ({(runtime.on_until_ts - now):.0f}s left)"
+                        else:
+                            reason = f"off: surplus {remaining_surplus:.1f}W < {threshold:.1f}W"
+
+                    _LOGGER.debug("Consumer %r: %s", name, reason)
 
                     if should_on:
                         await self._set_switch(switch_entity, True)
@@ -304,6 +370,8 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             remaining_surplus -= expected
                     elif runtime.on_until_ts <= now:
                         await self._set_switch(switch_entity, False)
+
+                    runtime.is_on = should_on
 
                 consumer_states[name] = {
                     "power": current_power,
