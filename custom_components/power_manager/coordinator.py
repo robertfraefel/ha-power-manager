@@ -186,12 +186,18 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_save()
         await self.async_request_refresh()
 
-    async def async_update_producer(self, name: str, entity_id: str) -> None:
+    async def async_update_producer(
+        self, name: str, entity_id: str, new_name: str | None = None
+    ) -> None:
         idx = self._find_idx_by_name(self._producers, name)
         if idx < 0:
             raise UpdateFailed(f"unknown producer: {name}")
+        if new_name is not None and new_name != name:
+            if self._find_idx_by_name(self._producers, new_name) >= 0:
+                raise UpdateFailed(f"producer already exists: {new_name}")
+            self._producers[idx]["name"] = new_name
         self._producers[idx]["entity_id"] = entity_id
-        _LOGGER.info("Producer updated: name=%r entity_id=%s", name, entity_id)
+        _LOGGER.info("Producer updated: name=%r entity_id=%s", new_name or name, entity_id)
         await self._async_save()
         await self.async_request_refresh()
 

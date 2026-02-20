@@ -152,6 +152,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
             "type": "power_manager/update_producer",
             "name": str,
             "entity_id": str,
+            vol.Optional("new_name"): str,
         }
     )
     @websocket_api.async_response
@@ -164,7 +165,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
             return
-        await coordinator.async_update_producer(msg["name"], msg["entity_id"])
+        await coordinator.async_update_producer(msg["name"], msg["entity_id"], msg.get("new_name"))
         connection.send_result(msg["id"], _config_payload(coordinator))
 
     @websocket_api.websocket_command(

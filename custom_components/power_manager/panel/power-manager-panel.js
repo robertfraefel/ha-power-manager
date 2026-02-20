@@ -72,55 +72,94 @@ class PowerManagerPanel extends HTMLElement {
   _renderShell() {
     this.innerHTML = `
       <style>
-        .wrap { padding: 16px; font-family: var(--primary-font-family); }
-        h2, h3 { margin: 8px 0; }
-        table { width: 100%; border-collapse: collapse; margin: 10px 0 20px; }
-        th, td { border-bottom: 1px solid var(--divider-color); padding: 8px; text-align: left; vertical-align: middle; }
-        .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; align-items: center; }
-        input, select { padding: 6px; min-width: 220px; max-width: 420px; }
-        button { padding: 8px 10px; cursor: pointer; }
-        .card { border: 1px solid var(--divider-color); border-radius: 12px; padding: 12px; margin: 12px 0; }
-        .small { opacity: 0.8; font-size: 12px; }
+        .wrap { padding: 16px; font-family: var(--primary-font-family); max-width: 1600px; }
+        h2 { margin: 4px 0 16px; font-size: 1.4em; }
+        h3 { margin: 0 0 10px; font-size: 1em; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; }
+        .card { border: 1px solid var(--divider-color); border-radius: 12px; padding: 16px; margin: 12px 0; background: var(--card-background-color, var(--primary-background-color)); }
+        /* Summary grid */
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+        .stat { background: var(--secondary-background-color, rgba(0,0,0,.04)); border-radius: 8px; padding: 10px 14px; }
+        .stat-label { font-size: 11px; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+        .stat-value { font-size: 1.15em; font-weight: 600; }
+        /* Tables */
+        .table-wrap { overflow-x: auto; margin: 0 0 12px; }
+        table { width: 100%; border-collapse: collapse; white-space: nowrap; }
+        th { border-bottom: 2px solid var(--divider-color); padding: 6px 8px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.65; }
+        td { border-bottom: 1px solid var(--divider-color); padding: 4px 6px; vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        /* Inputs inside tables — compact */
+        td input, td select { padding: 4px 6px; min-width: 0; width: 100%; box-sizing: border-box; font-size: 13px; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--primary-background-color); color: var(--primary-text-color); }
+        td input[type=number] { width: 70px; }
+        td input[list] { width: 160px; }
+        td select { width: 110px; }
+        /* "Add" row inputs */
+        .add-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding-top: 8px; border-top: 1px solid var(--divider-color); margin-top: 4px; }
+        .add-row input, .add-row select { padding: 6px 8px; min-width: 0; font-size: 13px; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--primary-background-color); color: var(--primary-text-color); }
+        .add-row input[list] { width: 180px; }
+        .add-row input[type=number] { width: 90px; }
+        .add-row input:not([list]):not([type=number]) { width: 120px; }
+        /* Buttons */
+        button { padding: 5px 10px; cursor: pointer; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--secondary-background-color, #f5f5f5); color: var(--primary-text-color); font-size: 13px; }
+        button:hover { background: var(--primary-color, #03a9f4); color: #fff; border-color: transparent; }
+        .btn-add { background: var(--primary-color, #03a9f4); color: #fff; border-color: transparent; font-weight: 600; }
+        .btn-add:hover { opacity: 0.85; }
+        .btn-del { color: var(--error-color, #db4437); }
+        .btn-del:hover { background: var(--error-color, #db4437); color: #fff; }
+        /* Badge for mode */
+        .mode-badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .badge-auto { background: #e8f5e9; color: #2e7d32; }
+        .badge-force_on { background: #fff8e1; color: #f57f17; }
+        .badge-force_off { background: #fce4ec; color: #b71c1c; }
+        .badge-deactivated { background: #eeeeee; color: #616161; }
+        /* Base-load inline table */
+        #baseTable { margin: 12px 0 0; }
+        .small { opacity: 0.6; font-size: 11px; margin-top: 8px; }
       </style>
       <div class="wrap">
-        <h2>Power Manager</h2>
+        <h2>⚡ Power Manager</h2>
         <datalist id="sensorEntitiesList"></datalist>
         <datalist id="switchEntitiesList"></datalist>
-        <div id="summary" class="card">Loading...</div>
+        <div id="summary" class="card">Loading…</div>
 
         <div class="card">
           <h3>Producers</h3>
-          <table>
-            <thead><tr><th>Name</th><th>Entity</th><th>Current W</th><th></th></tr></thead>
-            <tbody id="prodRows"></tbody>
-          </table>
-          <div class="row">
-            <input id="newProdName" placeholder="name" />
-            <input id="newProdEntity" list="sensorEntitiesList" placeholder="sensor.xxx" />
-            <button id="addProd">Add producer</button>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Entity</th><th>Current W</th><th style="width:110px"></th></tr></thead>
+              <tbody id="prodRows"></tbody>
+            </table>
+          </div>
+          <div class="add-row">
+            <input id="newProdName" placeholder="Name" />
+            <input id="newProdEntity" list="sensorEntitiesList" placeholder="sensor.pv_power" />
+            <button id="addProd" class="btn-add">+ Add producer</button>
           </div>
         </div>
 
         <div class="card">
           <h3>Consumers</h3>
-          <table>
-            <thead>
-              <tr><th>Name</th><th>Switch</th><th>Power sensor</th><th>Current W</th><th>Priority</th><th>Expected W</th><th>Min min</th><th>Mode</th><th>Condition state</th><th></th></tr>
-            </thead>
-            <tbody id="consRows"></tbody>
-          </table>
-          <div class="row">
-            <input id="newConName" placeholder="name" />
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th><th>Switch</th><th>Power sensor</th><th>W now</th>
+                  <th>Prio</th><th>Exp W</th><th>Min min</th><th>Mode</th>
+                  <th>Decision</th><th style="width:110px"></th>
+                </tr>
+              </thead>
+              <tbody id="consRows"></tbody>
+            </table>
+          </div>
+          <div class="add-row">
+            <input id="newConName" placeholder="Name" />
             <input id="newConSwitch" list="switchEntitiesList" placeholder="switch.xxx" />
             <input id="newConPower" list="sensorEntitiesList" placeholder="sensor.xxx" />
-            <input id="newConPrio" type="number" placeholder="priority" />
-            <input id="newConExpected" type="number" placeholder="expected W" />
-            <input id="newConMin" type="number" placeholder="min minutes" />
-            <button id="addCon">Add consumer</button>
+            <input id="newConPrio" type="number" placeholder="Prio" />
+            <input id="newConExpected" type="number" placeholder="Exp W" />
+            <input id="newConMin" type="number" placeholder="Min min" />
+            <button id="addCon" class="btn-add">+ Add consumer</button>
           </div>
         </div>
-
-        <div class="small">Entity/switch/power fields are selectable dropdowns. Inline edits are saved per row.</div>
       </div>
     `;
   }
@@ -187,30 +226,46 @@ class PowerManagerPanel extends HTMLElement {
     const summarySurplus = Number(data.surplus ?? (summaryTotalProduction - summaryBaseLoad));
     const summaryRemainingSurplus = Number(data.remaining_surplus ?? summarySurplus);
 
+    const fmt = (v) => Number.isFinite(v) ? v.toFixed(1) + ' W' : 'n/a';
+    const surplusColor = summarySurplus >= 0 ? '#2e7d32' : '#b71c1c';
+
     this.querySelector('#summary').innerHTML = `
-      <div><b>Version:</b> ${data.integration_version}</div>
-      <div><b>Running:</b> ${data.running}</div>
-      <div><b>Total production:</b> ${Number.isFinite(summaryTotalProduction) ? summaryTotalProduction.toFixed(1) : 'n/a'} W</div>
-      <div><b>Base load:</b> ${Number.isFinite(summaryBaseLoad) ? summaryBaseLoad.toFixed(1) : 'n/a'} W</div>
-      <div><b>Surplus:</b> ${Number.isFinite(summarySurplus) ? summarySurplus.toFixed(1) : 'n/a'} W</div>
-      <div><b>Remaining surplus (after allocation):</b> ${Number.isFinite(summaryRemainingSurplus) ? summaryRemainingSurplus.toFixed(1) : 'n/a'} W</div>
-      <div><b>Scan interval:</b> ${data.scan_interval_seconds}s</div>
-      <table>
-        <thead><tr><th>Name</th><th>Entity</th><th>Current W</th><th></th></tr></thead>
-        <tbody>
-          <tr>
-            <td>Base load</td>
-            <td>
-              <input id="baseEntity" list="sensorEntitiesList" value="${data.base_load_entity || ''}" placeholder="sensor.house_total_power" />
-            </td>
-            <td>${data.base_load_current_w}</td>
-            <td>
-              <button id="saveBase">Save</button>
-              <button id="delBase">Delete</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="summary-grid">
+        <div class="stat">
+          <div class="stat-label">Production</div>
+          <div class="stat-value">${fmt(summaryTotalProduction)}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Base load</div>
+          <div class="stat-value">${fmt(summaryBaseLoad)}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Surplus</div>
+          <div class="stat-value" style="color:${surplusColor}">${fmt(summarySurplus)}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Remaining</div>
+          <div class="stat-value">${fmt(summaryRemainingSurplus)}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Scan interval</div>
+          <div class="stat-value">${data.scan_interval_seconds}s</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Status</div>
+          <div class="stat-value">${data.running ? '🟢 Running' : '🔴 Stopped'}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Version</div>
+          <div class="stat-value" style="font-size:.95em">${data.integration_version}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:13px;opacity:.7">Base load entity:</span>
+        <input id="baseEntity" list="sensorEntitiesList" value="${data.base_load_entity || ''}" placeholder="sensor.house_total_power" style="flex:1;min-width:200px;padding:5px 8px;border:1px solid var(--divider-color);border-radius:4px;font-size:13px;background:var(--primary-background-color);color:var(--primary-text-color)" />
+        <button id="saveBase">Save</button>
+        <button id="delBase" class="btn-del">Clear</button>
+      </div>
     `;
 
     this.querySelector('#saveBase').onclick = async () => {
@@ -233,18 +288,29 @@ class PowerManagerPanel extends HTMLElement {
       const tr = document.createElement('tr');
       const current = (data.producer_states || {})[p.name]?.power ?? 'n/a';
       tr.innerHTML = `
-        <td>${p.name}</td>
+        <td><input data-k="name" value="${p.name}" /></td>
         <td><input data-k="entity" list="sensorEntitiesList" value="${p.entity_id || ''}" placeholder="sensor.xxx" /></td>
         <td>${current}</td>
-        <td>
+        <td style="white-space:nowrap">
           <button data-a="save">Save</button>
-          <button data-a="del">Delete</button>
+          <button data-a="del" class="btn-del">Del</button>
         </td>
       `;
       tr.querySelector('[data-a="save"]').onclick = async () => {
+        const newName = tr.querySelector('[data-k="name"]').value.trim();
         const entity = tr.querySelector('[data-k="entity"]').value.trim();
-        await this._ws('power_manager/update_producer', { name: p.name, entity_id: entity });
-        await this._load();
+        const payload = { name: p.name, entity_id: entity };
+        if (newName && newName !== p.name) {
+          payload.new_name = newName;
+        }
+        try {
+          await this._ws('power_manager/update_producer', payload);
+          await this._load();
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('Failed to save producer', err);
+          alert(`Failed to save producer: ${err?.message || err}`);
+        }
       };
       tr.querySelector('[data-a="del"]').onclick = async () => {
         await this._ws('power_manager/remove_producer', { name: p.name });
@@ -298,11 +364,12 @@ class PowerManagerPanel extends HTMLElement {
         ? hassStateNum
         : (Number.isFinite(coordNum) ? coordNum : NaN);
       const currentW = Number.isFinite(displayNum) ? displayNum.toFixed(1) : 'n/a';
+      const decision = conditionByConsumer[c.name] || 'n/a';
       tr.innerHTML = `
         <td><input data-k="name" value="${c.name}" /></td>
         <td><input data-k="switch" list="switchEntitiesList" value="${c.switch_entity || ''}" placeholder="switch.xxx" /></td>
         <td><input data-k="power" list="sensorEntitiesList" value="${c.power_entity || ''}" placeholder="sensor.xxx" /></td>
-        <td>${currentW}</td>
+        <td style="text-align:right;padding-right:12px">${currentW}</td>
         <td><input data-k="priority" type="number" value="${c.priority ?? 1}" /></td>
         <td><input data-k="expected" type="number" value="${c.expected_power ?? 0}" /></td>
         <td><input data-k="min" type="number" value="${c.min_run_minutes ?? 0}" /></td>
@@ -314,10 +381,10 @@ class PowerManagerPanel extends HTMLElement {
             <option value="deactivated">deactivated</option>
           </select>
         </td>
-        <td>${conditionByConsumer[c.name] || 'n/a'}</td>
-        <td>
+        <td style="font-size:12px;max-width:200px;white-space:normal">${decision}</td>
+        <td style="white-space:nowrap">
           <button data-a="save">Save</button>
-          <button data-a="del">Delete</button>
+          <button data-a="del" class="btn-del">Del</button>
         </td>
       `;
       tr.querySelector('[data-k="mode"]').value = c.mode || 'auto';
