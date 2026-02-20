@@ -298,17 +298,33 @@ class PowerManagerPanel extends HTMLElement {
       `;
       tr.querySelector('[data-k="mode"]').value = c.mode || 'auto';
       tr.querySelector('[data-a="save"]').onclick = async () => {
-        await this._ws('power_manager/update_consumer', {
+        const newName = tr.querySelector('[data-k="name"]').value.trim();
+        const priorityNum = Number(tr.querySelector('[data-k="priority"]').value);
+        const expectedNum = Number(tr.querySelector('[data-k="expected"]').value);
+        const minNum = Number(tr.querySelector('[data-k="min"]').value);
+
+        const payload = {
           name: c.name,
-          new_name: tr.querySelector('[data-k="name"]').value.trim(),
           switch_entity: tr.querySelector('[data-k="switch"]').value.trim(),
           power_entity: tr.querySelector('[data-k="power"]').value.trim(),
-          priority: Number(tr.querySelector('[data-k="priority"]').value || 1),
-          expected_power: Number(tr.querySelector('[data-k="expected"]').value || 0),
-          min_run_minutes: Number(tr.querySelector('[data-k="min"]').value || 0),
+          priority: Number.isFinite(priorityNum) ? Math.round(priorityNum) : Number(c.priority ?? 1),
+          expected_power: Number.isFinite(expectedNum) ? expectedNum : Number(c.expected_power ?? 0),
+          min_run_minutes: Number.isFinite(minNum) ? minNum : Number(c.min_run_minutes ?? 0),
           mode: tr.querySelector('[data-k="mode"]').value,
-        });
-        await this._load();
+        };
+
+        if (newName && newName !== c.name) {
+          payload.new_name = newName;
+        }
+
+        try {
+          await this._ws('power_manager/update_consumer', payload);
+          await this._load();
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('Failed to save consumer', err);
+          alert(`Failed to save consumer: ${err?.message || err}`);
+        }
       };
       tr.querySelector('[data-a="del"]').onclick = async () => {
         await this._ws('power_manager/remove_consumer', { name: c.name });
