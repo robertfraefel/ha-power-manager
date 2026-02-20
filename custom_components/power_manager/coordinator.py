@@ -255,6 +255,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             base_load = self._state_float(self._base_load_entity)
             surplus = total_production - base_load
+            remaining_surplus = surplus
 
             consumer_states: dict[str, dict[str, Any]] = {}
 
@@ -281,7 +282,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     elif runtime.mode == MODE_FORCE_OFF:
                         should_on = False
                     else:
-                        if surplus >= expected:
+                        if remaining_surplus >= expected:
                             should_on = True
                         elif runtime.on_until_ts > now:
                             should_on = True
@@ -292,7 +293,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             runtime.on_until_ts, now + min_run_minutes * 60
                         )
                         if runtime.mode == MODE_AUTO:
-                            surplus -= expected
+                            remaining_surplus -= expected
                     elif runtime.on_until_ts <= now:
                         await self._set_switch(switch_entity, False)
 
@@ -310,6 +311,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "total_production": total_production,
                 "base_load": base_load,
                 "surplus": surplus,
+                "remaining_surplus": remaining_surplus,
                 "consumer_states": consumer_states,
                 "producers": self._producers,
                 "producer_states": producer_states,

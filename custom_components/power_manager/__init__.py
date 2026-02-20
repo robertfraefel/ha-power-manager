@@ -50,6 +50,7 @@ def _config_payload(coordinator: PowerManagerCoordinator) -> dict[str, Any]:
         "base_load": data.get("base_load", 0),
         "total_production": data.get("total_production", 0),
         "surplus": data.get("surplus", 0),
+        "remaining_surplus": data.get("remaining_surplus", 0),
         "scan_interval_seconds": data.get("scan_interval_seconds", 0),
         "producers": data.get("producers", []),
         "producer_states": data.get("producer_states", {}),

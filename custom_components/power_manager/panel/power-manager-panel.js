@@ -153,6 +153,7 @@ class PowerManagerPanel extends HTMLElement {
     const summaryTotalProduction = Number(data.total_production ?? 0);
     const summaryBaseLoad = Number(data.base_load ?? data.base_load_current_w ?? 0);
     const summarySurplus = Number(data.surplus ?? (summaryTotalProduction - summaryBaseLoad));
+    const summaryRemainingSurplus = Number(data.remaining_surplus ?? summarySurplus);
 
     this.querySelector('#summary').innerHTML = `
       <div><b>Version:</b> ${data.integration_version}</div>
@@ -160,6 +161,7 @@ class PowerManagerPanel extends HTMLElement {
       <div><b>Total production:</b> ${Number.isFinite(summaryTotalProduction) ? summaryTotalProduction.toFixed(1) : 'n/a'} W</div>
       <div><b>Base load:</b> ${Number.isFinite(summaryBaseLoad) ? summaryBaseLoad.toFixed(1) : 'n/a'} W</div>
       <div><b>Surplus:</b> ${Number.isFinite(summarySurplus) ? summarySurplus.toFixed(1) : 'n/a'} W</div>
+      <div><b>Remaining surplus (after allocation):</b> ${Number.isFinite(summaryRemainingSurplus) ? summaryRemainingSurplus.toFixed(1) : 'n/a'} W</div>
       <div><b>Scan interval:</b> ${data.scan_interval_seconds}s</div>
       <table>
         <thead><tr><th>Name</th><th>Entity</th><th>Current W</th><th></th></tr></thead>
