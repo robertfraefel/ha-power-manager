@@ -72,48 +72,58 @@ class PowerManagerPanel extends HTMLElement {
   _renderShell() {
     this.innerHTML = `
       <style>
-        .wrap { padding: 16px; font-family: var(--primary-font-family); max-width: 1600px; }
-        h2 { margin: 4px 0 16px; font-size: 1.4em; }
-        h3 { margin: 0 0 10px; font-size: 1em; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; }
-        .card { border: 1px solid var(--divider-color); border-radius: 12px; padding: 16px; margin: 12px 0; background: var(--card-background-color, var(--primary-background-color)); }
+        .wrap { padding: 12px 16px; font-family: var(--primary-font-family); max-width: 1600px; }
+        h2 { margin: 0 0 10px; font-size: 1.3em; }
+        h3 { margin: 0 0 8px; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.6; }
+        .card { border: 1px solid var(--divider-color); border-radius: 10px; padding: 12px; margin: 6px 0; background: var(--card-background-color, var(--primary-background-color)); }
         /* Summary grid */
-        .summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
-        .stat { background: var(--secondary-background-color, rgba(0,0,0,.04)); border-radius: 8px; padding: 10px 14px; }
-        .stat-label { font-size: 11px; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
-        .stat-value { font-size: 1.15em; font-weight: 600; }
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; margin-bottom: 10px; }
+        .stat { background: var(--secondary-background-color, rgba(0,0,0,.04)); border-radius: 6px; padding: 6px 10px; }
+        .stat-label { font-size: 10px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }
+        .stat-value { font-size: 1.05em; font-weight: 600; }
+        /* Base load row inside summary */
+        .base-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid var(--divider-color); }
+        .base-row label { font-size: 12px; opacity: 0.65; white-space: nowrap; }
+        .base-row input { flex: 1; min-width: 160px; max-width: 340px; padding: 4px 8px; font-size: 13px; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--primary-background-color); color: var(--primary-text-color); }
         /* Tables */
-        .table-wrap { overflow-x: auto; margin: 0 0 12px; }
+        .table-wrap { overflow-x: auto; margin: 0 0 8px; }
         table { width: 100%; border-collapse: collapse; white-space: nowrap; }
-        th { border-bottom: 2px solid var(--divider-color); padding: 6px 8px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.65; }
-        td { border-bottom: 1px solid var(--divider-color); padding: 4px 6px; vertical-align: middle; }
+        th { border-bottom: 2px solid var(--divider-color); padding: 5px 6px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.6; }
+        td { border-bottom: 1px solid var(--divider-color); padding: 3px 5px; vertical-align: middle; }
         tr:last-child td { border-bottom: none; }
         /* Inputs inside tables — compact */
-        td input, td select { padding: 4px 6px; min-width: 0; width: 100%; box-sizing: border-box; font-size: 13px; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--primary-background-color); color: var(--primary-text-color); }
-        td input[type=number] { width: 70px; }
-        td input[list] { width: 160px; }
-        td select { width: 110px; }
+        td input, td select { padding: 3px 5px; min-width: 0; width: 100%; box-sizing: border-box; font-size: 12px; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--primary-background-color); color: var(--primary-text-color); }
+        td input[type=number] { width: 62px; }
+        td input[list] { width: 155px; }
+        td select { width: 105px; }
         /* "Add" row inputs */
-        .add-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding-top: 8px; border-top: 1px solid var(--divider-color); margin-top: 4px; }
-        .add-row input, .add-row select { padding: 6px 8px; min-width: 0; font-size: 13px; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--primary-background-color); color: var(--primary-text-color); }
-        .add-row input[list] { width: 180px; }
-        .add-row input[type=number] { width: 90px; }
-        .add-row input:not([list]):not([type=number]) { width: 120px; }
+        .add-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding-top: 8px; border-top: 1px solid var(--divider-color); margin-top: 2px; }
+        .add-row input, .add-row select { padding: 5px 7px; min-width: 0; font-size: 12px; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--primary-background-color); color: var(--primary-text-color); }
+        .add-row input[list] { width: 170px; }
+        .add-row input[type=number] { width: 80px; }
+        .add-row input:not([list]):not([type=number]) { width: 110px; }
         /* Buttons */
-        button { padding: 5px 10px; cursor: pointer; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--secondary-background-color, #f5f5f5); color: var(--primary-text-color); font-size: 13px; }
+        button { padding: 4px 9px; cursor: pointer; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--secondary-background-color, #f5f5f5); color: var(--primary-text-color); font-size: 12px; }
         button:hover { background: var(--primary-color, #03a9f4); color: #fff; border-color: transparent; }
         .btn-add { background: var(--primary-color, #03a9f4); color: #fff; border-color: transparent; font-weight: 600; }
         .btn-add:hover { opacity: 0.85; }
         .btn-del { color: var(--error-color, #db4437); }
         .btn-del:hover { background: var(--error-color, #db4437); color: #fff; }
-        /* Badge for mode */
-        .mode-badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
-        .badge-auto { background: #e8f5e9; color: #2e7d32; }
-        .badge-force_on { background: #fff8e1; color: #f57f17; }
-        .badge-force_off { background: #fce4ec; color: #b71c1c; }
-        .badge-deactivated { background: #eeeeee; color: #616161; }
-        /* Base-load inline table */
-        #baseTable { margin: 12px 0 0; }
-        .small { opacity: 0.6; font-size: 11px; margin-top: 8px; }
+        /* Consumer status dots */
+        .status-cell { display: flex; align-items: center; justify-content: center; gap: 4px; }
+        .status-dot { display: inline-block; border-radius: 50%; vertical-align: middle; flex-shrink: 0; }
+        .dot-decision { width: 12px; height: 12px; }
+        .dot-decision-on  { background: #2e7d32; box-shadow: 0 0 4px #2e7d3280; }
+        .dot-decision-off { background: #9e9e9e; }
+        .dot-decision-deactivated { background: transparent; border: 2px solid #bdbdbd; width: 10px; height: 10px; }
+        .dot-actual { width: 7px; height: 7px; border-radius: 2px; }
+        .dot-actual-on  { background: #1565c0; }
+        .dot-actual-off { background: #bdbdbd; }
+        .dot-actual-unknown { background: transparent; border: 1px solid #bdbdbd; }
+        /* Legend */
+        .legend { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 8px; font-size: 11px; opacity: 0.7; }
+        .legend-item { display: flex; align-items: center; gap: 4px; }
+        .legend-sep { opacity: 0.35; }
       </style>
       <div class="wrap">
         <h2>⚡ Power Manager</h2>
@@ -142,6 +152,7 @@ class PowerManagerPanel extends HTMLElement {
             <table>
               <thead>
                 <tr>
+                  <th style="width:44px"></th>
                   <th>Name</th><th>Switch</th><th>Power sensor</th><th>W now</th>
                   <th>Prio</th><th>Exp W</th><th>Min min</th><th>Mode</th>
                   <th>Decision</th><th style="width:110px"></th>
@@ -149,6 +160,14 @@ class PowerManagerPanel extends HTMLElement {
               </thead>
               <tbody id="consRows"></tbody>
             </table>
+          </div>
+          <div class="legend">
+            <span class="legend-item"><span class="status-dot dot-decision dot-decision-on"></span> Decision: ON</span>
+            <span class="legend-item"><span class="status-dot dot-decision dot-decision-off"></span> Decision: OFF</span>
+            <span class="legend-item"><span class="status-dot dot-decision dot-decision-deactivated"></span> Deactivated</span>
+            <span class="legend-sep">·</span>
+            <span class="legend-item"><span class="status-dot dot-actual dot-actual-on"></span> Switch ON</span>
+            <span class="legend-item"><span class="status-dot dot-actual dot-actual-off"></span> Switch OFF</span>
           </div>
           <div class="add-row">
             <input id="newConName" placeholder="Name" />
@@ -260,9 +279,9 @@ class PowerManagerPanel extends HTMLElement {
           <div class="stat-value" style="font-size:.95em">${data.integration_version}</div>
         </div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <span style="font-size:13px;opacity:.7">Base load entity:</span>
-        <input id="baseEntity" list="sensorEntitiesList" value="${data.base_load_entity || ''}" placeholder="sensor.house_total_power" style="flex:1;min-width:200px;padding:5px 8px;border:1px solid var(--divider-color);border-radius:4px;font-size:13px;background:var(--primary-background-color);color:var(--primary-text-color)" />
+      <div class="base-row">
+        <label>Base load entity:</label>
+        <input id="baseEntity" list="sensorEntitiesList" value="${data.base_load_entity || ''}" placeholder="sensor.house_total_power" />
         <button id="saveBase">Save</button>
         <button id="delBase" class="btn-del">Clear</button>
       </div>
@@ -365,7 +384,36 @@ class PowerManagerPanel extends HTMLElement {
         : (Number.isFinite(coordNum) ? coordNum : NaN);
       const currentW = Number.isFinite(displayNum) ? displayNum.toFixed(1) : 'n/a';
       const decision = conditionByConsumer[c.name] || 'n/a';
+
+      // Status: coordinator decision + actual switch state
+      const stateData = (data.consumer_states || {})[c.name] || {};
+      const switchEntityId = c.switch_entity || '';
+      const switchStateObj = switchEntityId ? this._hass?.states?.[switchEntityId] : null;
+      const isDeactivated = (stateData.mode || 'auto') === 'deactivated';
+
+      // Coordinator decision (large dot)
+      const coordDecision = Boolean(stateData.is_on);
+      const coordDotClass = isDeactivated
+        ? 'dot-decision-deactivated'
+        : (coordDecision ? 'dot-decision-on' : 'dot-decision-off');
+      const coordTitle = isDeactivated ? 'Decision: deactivated' : (coordDecision ? 'Decision: ON' : 'Decision: OFF');
+
+      // Actual switch state (small square dot)
+      const actualOn = switchStateObj ? switchStateObj.state === 'on' : null;
+      const actualDotClass = actualOn === null
+        ? 'dot-actual-unknown'
+        : (actualOn ? 'dot-actual-on' : 'dot-actual-off');
+      const actualTitle = actualOn === null
+        ? 'Switch: unknown'
+        : (actualOn ? 'Switch: ON' : 'Switch: OFF');
+
       tr.innerHTML = `
+        <td style="text-align:center">
+          <div class="status-cell">
+            <span class="status-dot dot-decision ${coordDotClass}" title="${coordTitle}"></span>
+            <span class="status-dot dot-actual ${actualDotClass}" title="${actualTitle}"></span>
+          </div>
+        </td>
         <td><input data-k="name" value="${c.name}" /></td>
         <td><input data-k="switch" list="switchEntitiesList" value="${c.switch_entity || ''}" placeholder="switch.xxx" /></td>
         <td><input data-k="power" list="sensorEntitiesList" value="${c.power_entity || ''}" placeholder="sensor.xxx" /></td>

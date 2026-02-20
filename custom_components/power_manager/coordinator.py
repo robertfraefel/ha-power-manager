@@ -336,6 +336,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "mode": runtime.mode,
                             "on_until": runtime.on_until_ts,
                             "switch_entity": switch_entity,
+                            "is_on": False,
                         }
                         continue  # don't touch the switch; don't deduct surplus
 
@@ -384,6 +385,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "mode": runtime.mode,
                     "on_until": runtime.on_until_ts,
                     "switch_entity": switch_entity,
+                    "is_on": runtime.is_on,
                 }
 
             return {
