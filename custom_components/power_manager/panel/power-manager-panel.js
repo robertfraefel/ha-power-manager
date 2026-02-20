@@ -135,15 +135,36 @@ class PowerManagerPanel extends HTMLElement {
     };
 
     this.querySelector('#addCon').onclick = async () => {
-      await this._ws('power_manager/add_consumer', {
-        name: this.querySelector('#newConName').value.trim(),
-        switch_entity: this.querySelector('#newConSwitch').value.trim(),
-        power_entity: this.querySelector('#newConPower').value.trim(),
-        priority: Number(this.querySelector('#newConPrio').value || 1),
-        expected_power: Number(this.querySelector('#newConExpected').value || 0),
-        min_run_minutes: Number(this.querySelector('#newConMin').value || 0),
-      });
-      await this._load();
+      const name = this.querySelector('#newConName').value.trim();
+      const switchEntity = this.querySelector('#newConSwitch').value.trim();
+      const powerEntity = this.querySelector('#newConPower').value.trim();
+      const priorityNum = Number(this.querySelector('#newConPrio').value);
+      const expectedNum = Number(this.querySelector('#newConExpected').value);
+      const minNum = Number(this.querySelector('#newConMin').value);
+
+      const payload = {
+        name,
+        switch_entity: switchEntity,
+        power_entity: powerEntity,
+        priority: Number.isFinite(priorityNum) ? Math.round(priorityNum) : 1,
+        expected_power: Number.isFinite(expectedNum) ? expectedNum : 0,
+        min_run_minutes: Number.isFinite(minNum) ? minNum : 0,
+      };
+
+      try {
+        await this._ws('power_manager/add_consumer', payload);
+        this.querySelector('#newConName').value = '';
+        this.querySelector('#newConSwitch').value = '';
+        this.querySelector('#newConPower').value = '';
+        this.querySelector('#newConPrio').value = '';
+        this.querySelector('#newConExpected').value = '';
+        this.querySelector('#newConMin').value = '';
+        await this._load();
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to add consumer', err);
+        alert(`Failed to add consumer: ${err?.message || err}`);
+      }
     };
   }
 
