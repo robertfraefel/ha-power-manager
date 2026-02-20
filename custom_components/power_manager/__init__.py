@@ -180,9 +180,9 @@ async def _register_ws(hass: HomeAssistant) -> None:
             "name": str,
             "switch_entity": str,
             "power_entity": str,
-            "priority": int,
-            "expected_power": float,
-            "min_run_minutes": float,
+            "priority": vol.Coerce(int),
+            "expected_power": vol.Coerce(float),
+            "min_run_minutes": vol.Coerce(float),
         }
     )
     @websocket_api.async_response
@@ -208,9 +208,9 @@ async def _register_ws(hass: HomeAssistant) -> None:
             vol.Optional("new_name"): str,
             vol.Optional("switch_entity"): str,
             vol.Optional("power_entity"): str,
-            vol.Optional("priority"): int,
-            vol.Optional("expected_power"): float,
-            vol.Optional("min_run_minutes"): float,
+            vol.Optional("priority"): vol.Coerce(int),
+            vol.Optional("expected_power"): vol.Coerce(float),
+            vol.Optional("min_run_minutes"): vol.Coerce(float),
             vol.Optional("mode"): str,
         }
     )
