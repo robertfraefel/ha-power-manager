@@ -82,9 +82,17 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not st:
             return 0.0
         try:
-            return float(st.state)
+            value = float(st.state)
         except Exception:
             return 0.0
+
+        unit = str(st.attributes.get("unit_of_measurement", "")).strip().lower()
+        if unit in {"kw", "kilowatt", "kilowatts"}:
+            return value * 1000.0
+        if unit in {"mw", "megawatt", "megawatts"}:
+            return value * 1_000_000.0
+
+        return value
 
     async def _set_switch(self, entity_id: str, on: bool) -> None:
         service = "turn_on" if on else "turn_off"

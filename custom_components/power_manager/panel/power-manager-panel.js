@@ -58,6 +58,17 @@ class PowerManagerPanel extends HTMLElement {
     `;
   }
 
+  _toWatts(stateObj) {
+    if (!stateObj) return NaN;
+    const value = Number(stateObj.state);
+    if (!Number.isFinite(value)) return NaN;
+
+    const unit = String(stateObj.attributes?.unit_of_measurement || '').trim().toLowerCase();
+    if (unit === 'kw' || unit === 'kilowatt' || unit === 'kilowatts') return value * 1000;
+    if (unit === 'mw' || unit === 'megawatt' || unit === 'megawatts') return value * 1000000;
+    return value;
+  }
+
   _renderShell() {
     this.innerHTML = `
       <style>
@@ -258,7 +269,7 @@ class PowerManagerPanel extends HTMLElement {
       const currentWFromCoordinator = (data.consumer_states || {})[c.name]?.power;
       const powerEntityId = (c.power_entity || '').trim();
       const stateObj = powerEntityId ? this._hass?.states?.[powerEntityId] : undefined;
-      const hassStateNum = stateObj ? Number(stateObj.state) : NaN;
+      const hassStateNum = this._toWatts(stateObj);
       const coordNum = Number(currentWFromCoordinator);
       const displayNum = Number.isFinite(hassStateNum)
         ? hassStateNum
