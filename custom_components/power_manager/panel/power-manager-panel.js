@@ -511,16 +511,24 @@ class PowerManagerPanel extends HTMLElement {
    * @param {Object} data - Response from `power_manager/get_config`.
    */
   _renderConsumers(data) {
-    // Pre-compute decision text per consumer
+    // Pre-compute decision info per consumer
     const conditionByConsumer = {};
     let remainingSurplus = Number(data.surplus || 0);
     const nowTs = Date.now() / 1000;
+    const _fmtTime = (sec) => sec >= 60
+      ? `${Math.floor(sec / 60)}m ${sec % 60}s`
+      : `${sec}s`;
     [...(data.consumers || [])]
       .sort((a, b) => Number(a.priority ?? 999) - Number(b.priority ?? 999))
       .forEach((c) => {
         const state = (data.consumer_states || {})[c.name] || {};
         const mode = state.mode || c.mode || 'auto';
         const expected = Number(c.expected_power || 0);
+        const priority = Number(c.priority ?? 999);
+        const onUntil = Number(state.on_until || 0);
+        const secLeft = onUntil > nowTs ? Math.max(0, Math.round(onUntil - nowTs)) : 0;
+        const timeLeft = secLeft > 0 ? _fmtTime(secLeft) : null;
+
         let reason;
         if (mode === 'deactivated') {
           reason = 'deactivated';
@@ -529,15 +537,14 @@ class PowerManagerPanel extends HTMLElement {
         } else if (mode === 'force_off') {
           reason = 'force_off';
         } else if (remainingSurplus >= expected) {
-          reason = `surplus ok (${remainingSurplus.toFixed(1)}W ≥ ${expected.toFixed(1)}W)`;
+          reason = `surplus ok (${remainingSurplus.toFixed(0)}W ≥ ${expected.toFixed(0)}W)`;
           remainingSurplus -= expected;
-        } else if (Number(state.on_until || 0) > nowTs) {
-          const secLeft = Math.max(0, Math.round(Number(state.on_until) - nowTs));
-          reason = `min-run hold (${secLeft}s left)`;
+        } else if (secLeft > 0) {
+          reason = 'min-run hold';
         } else {
-          reason = `no surplus (${remainingSurplus.toFixed(1)}W < ${expected.toFixed(1)}W)`;
+          reason = `no surplus (${remainingSurplus.toFixed(0)}W < ${expected.toFixed(0)}W)`;
         }
-        conditionByConsumer[c.name] = reason;
+        conditionByConsumer[c.name] = { priority, reason, timeLeft };
       });
 
     const consRows = this.querySelector('#consRows');
@@ -593,7 +600,14 @@ class PowerManagerPanel extends HTMLElement {
             <option value="deactivated">deactivated</option>
           </select>
         </td>
-        <td style="font-size:11px;max-width:200px;white-space:normal">${conditionByConsumer[c.name] || 'n/a'}</td>
+        <td style="font-size:11px;max-width:220px;white-space:normal;line-height:1.5">
+          ${(() => {
+            const { priority, reason, timeLeft } = conditionByConsumer[c.name] || { priority: c.priority ?? '?', reason: 'n/a', timeLeft: null };
+            const prioHtml = `<span style="display:inline-block;background:var(--secondary-background-color);border-radius:3px;padding:0 4px;font-weight:600;margin-right:4px">P${priority}</span>`;
+            const timeHtml = timeLeft ? `<br><span style="opacity:0.65">⏱ ${timeLeft} left</span>` : '';
+            return `${prioHtml}${reason}${timeHtml}`;
+          })()}
+        </td>
         <td style="white-space:nowrap">
           <button data-a="save">Save</button>
           <button data-a="del" class="btn-del">Del</button>
