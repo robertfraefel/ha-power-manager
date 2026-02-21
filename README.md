@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="custom_components/power_manager/panel/logo.svg" alt="Power Manager Logo" width="80">
+</p>
+
 # HA Power Manager
 
 A Home Assistant custom integration that automatically manages renewable-energy loads based on available solar surplus. When solar production exceeds the household base load, consumers (boiler, washing machine, EV charger, …) are switched on in priority order. When surplus drops they are switched off again.
