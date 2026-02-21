@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.8';
+const PANEL_VERSION = '0.2.9';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -599,7 +599,8 @@ class PowerManagerPanel extends HTMLElement {
         } else {
           reason = `no surplus (${remainingSurplus.toFixed(0)}W < ${expected.toFixed(0)}W)`;
         }
-        conditionByConsumer[c.name] = { priority, reason, timeLeft };
+        // Only show the countdown when the consumer is actually in min-run hold.
+        conditionByConsumer[c.name] = { priority, reason, timeLeft: reason === 'min-run hold' ? timeLeft : null };
       });
 
     const consRows = this.querySelector('#consRows');
