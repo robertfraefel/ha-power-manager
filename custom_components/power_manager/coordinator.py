@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -503,6 +504,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
             now = self.hass.loop.time()
+            unix_now = time.time()
             for c in sorted_consumers:
                 name = c["name"]
                 switch_entity = c["switch_entity"]
@@ -521,7 +523,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         consumer_states[name] = {
                             "power": current_power,
                             "mode": runtime.mode,
-                            "on_until": runtime.on_until_ts,
+                            "on_until": unix_now + max(0.0, runtime.on_until_ts - now),
                             "switch_entity": switch_entity,
                             "is_on": False,
                         }
