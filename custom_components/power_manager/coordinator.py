@@ -124,6 +124,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         merged = {**entry.data, **entry.options}
         self._base_load_entity: str = merged.get(CONF_BASE_LOAD_ENTITY, "sensor.house_total_power")
+        self._base_load_name: str = "Base load"
         self._producers: list[dict[str, Any]] = json.loads(merged.get(CONF_PRODUCERS, "[]"))
         self._consumers: list[dict[str, Any]] = json.loads(merged.get(CONF_CONSUMERS, "[]"))
         self._runtime: dict[str, ConsumerRuntime] = {
@@ -156,6 +157,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         self._base_load_entity = stored.get("base_load_entity", self._base_load_entity)
+        self._base_load_name = stored.get("base_load_name", self._base_load_name)
         self._producers = stored.get("producers", self._producers)
         self._consumers = stored.get("consumers", self._consumers)
         self.running = bool(stored.get("running", self.running))
@@ -218,6 +220,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Persist current configuration and runtime modes to HA Store."""
         payload = {
             "base_load_entity": self._base_load_entity,
+            "base_load_name": self._base_load_name,
             "producers": self._producers,
             "consumers": self._consumers,
             "running": self.running,
@@ -272,10 +275,12 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_save()
         await self.async_request_refresh()
 
-    async def async_update_base_load_entity(self, entity_id: str) -> None:
-        """Change the base-load sensor entity ID and trigger a refresh."""
+    async def async_update_base_load_entity(self, entity_id: str, name: str | None = None) -> None:
+        """Change the base-load sensor entity ID (and optionally its display name) and trigger a refresh."""
         self._base_load_entity = entity_id
-        _LOGGER.info("Base load entity updated to %s", entity_id)
+        if name is not None:
+            self._base_load_name = name
+        _LOGGER.info("Base load entity updated to %s (name=%r)", entity_id, self._base_load_name)
         await self._async_save()
         await self.async_request_refresh()
 
@@ -583,6 +588,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return {
                 "running": self.running,
                 "base_load_entity": self._base_load_entity,
+                "base_load_name": self._base_load_name,
                 "scan_interval_seconds": int(self.update_interval.total_seconds()),
                 "total_production": total_production,
                 "base_load": base_load,

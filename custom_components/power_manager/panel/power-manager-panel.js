@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.5';
+const PANEL_VERSION = '0.2.7';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -62,6 +62,10 @@ class PowerManagerPanel extends HTMLElement {
     if (this._pollTimer) {
       clearInterval(this._pollTimer);
       this._pollTimer = null;
+    }
+    if (this._lightTimer) {
+      clearInterval(this._lightTimer);
+      this._lightTimer = null;
     }
     this._loading = false;
   }
@@ -381,10 +385,14 @@ class PowerManagerPanel extends HTMLElement {
     }
     this._data = data;
 
-    // Start auto-refresh timer on first successful load
+    // Start auto-refresh timers on first successful load
     if (!this._pollTimer) {
       const interval = Math.max(5, Number(data.scan_interval_seconds) || 10) * 1000;
       this._pollTimer = setInterval(() => this._load(), interval);
+    }
+    if (!this._lightTimer) {
+      // Fast 2 s tick to keep live entity values current even when HA pushes no updates
+      this._lightTimer = setInterval(() => { if (this._data) this._updateLiveValues(); }, 2000);
     }
 
     // Refresh entity datalists
@@ -423,7 +431,7 @@ class PowerManagerPanel extends HTMLElement {
     this.querySelector('#summary').innerHTML = `
       <div class="summary-grid">
         <div class="stat"><div class="stat-label">Production</div><div class="stat-value">${fmt(prod)}</div></div>
-        <div class="stat"><div class="stat-label">Base load</div><div class="stat-value">${fmt(base)}</div></div>
+        <div class="stat"><div class="stat-label">${data.base_load_name || 'Base load'}</div><div class="stat-value">${fmt(base)}</div></div>
         <div class="stat"><div class="stat-label">Surplus</div><div class="stat-value" style="color:${surplusColor}">${fmt(surplus)}</div></div>
         <div class="stat"><div class="stat-label">Remaining</div><div class="stat-value">${fmt(remaining)}</div></div>
         <div class="stat"><div class="stat-label">Scan interval</div><div class="stat-value">${data.scan_interval_seconds}s</div></div>
@@ -457,13 +465,14 @@ class PowerManagerPanel extends HTMLElement {
    */
   _renderBaseLoad(data) {
     const entityId = data.base_load_entity || '';
+    const baseName = data.base_load_name || 'Base load';
     const liveW = this._toWatts(this._hass?.states?.[entityId]);
     const displayW = Number.isFinite(liveW) ? liveW.toFixed(1) : (data.base_load_current_w ?? 'n/a');
 
     const tbody = this.querySelector('#baseRows');
     tbody.innerHTML = `
       <tr>
-        <td>Base load</td>
+        <td><input id="baseName" value="${baseName}" placeholder="Base load" style="width:100px" /></td>
         <td><input id="baseEntity" list="sensorEntitiesList" value="${entityId}" placeholder="sensor.house_total_power" /></td>
         <td data-live-watt="${entityId}">${displayW}</td>
         <td style="white-space:nowrap">
@@ -476,11 +485,12 @@ class PowerManagerPanel extends HTMLElement {
     this.querySelector('#saveBase').onclick = async () => {
       await this._ws('power_manager/set_base', {
         base_load_entity: this.querySelector('#baseEntity').value.trim(),
+        base_load_name: this.querySelector('#baseName').value.trim() || 'Base load',
       });
       await this._load();
     };
     this.querySelector('#delBase').onclick = async () => {
-      await this._ws('power_manager/set_base', { base_load_entity: '' });
+      await this._ws('power_manager/set_base', { base_load_entity: '', base_load_name: 'Base load' });
       await this._load();
     };
   }
@@ -624,14 +634,13 @@ class PowerManagerPanel extends HTMLElement {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td style="text-align:center">
-          <div class="status-cell">
-            <span class="status-dot dot-decision ${coordDotClass}" title="${coordTitle}"></span>
-            <span class="status-dot dot-actual ${actualDotClass}" title="${actualTitle}"
-                  data-live-switch="${c.switch_entity || ''}"></span>
-          </div>
+          <span class="status-dot dot-decision ${coordDotClass}" title="${coordTitle}"></span>
         </td>
         <td><input data-k="name" value="${c.name}" /></td>
-        <td><input data-k="switch" list="switchEntitiesList" value="${c.switch_entity || ''}" placeholder="switch.xxx" /></td>
+        <td style="white-space:nowrap">
+          <span class="status-dot dot-actual ${actualDotClass}" title="${actualTitle}"
+                data-live-switch="${c.switch_entity || ''}"
+                style="vertical-align:middle;margin-right:4px"></span><input data-k="switch" list="switchEntitiesList" value="${c.switch_entity || ''}" placeholder="switch.xxx" style="width:calc(100% - 18px);display:inline-block;vertical-align:middle" /></td>
         <td><input data-k="power" list="sensorEntitiesList" value="${c.power_entity || ''}" placeholder="sensor.xxx" /></td>
         <td style="text-align:right;padding-right:10px" data-live-watt="${c.power_entity || ''}">${displayW}</td>
         <td><input data-k="priority" type="number" value="${c.priority ?? 1}" /></td>

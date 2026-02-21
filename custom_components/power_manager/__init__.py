@@ -103,6 +103,7 @@ def _config_payload(coordinator: PowerManagerCoordinator) -> dict[str, Any]:
         "integration_version": INTEGRATION_VERSION,
         "running": data.get("running", False),
         "base_load_entity": data.get("base_load_entity", ""),
+        "base_load_name": data.get("base_load_name", "Base load"),
         "base_load_current_w": data.get("base_load", 0),
         "base_load": data.get("base_load", 0),
         "total_production": data.get("total_production", 0),
@@ -179,13 +180,14 @@ async def _register_ws(hass: HomeAssistant) -> None:
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
             return
-        await coordinator.async_request_refresh()
+        await coordinator.async_refresh()
         connection.send_result(msg["id"], _config_payload(coordinator))
 
     @websocket_api.websocket_command(
         {
             "type": "power_manager/set_base",
             "base_load_entity": str,
+            vol.Optional("base_load_name"): str,
         }
     )
     @websocket_api.async_response
@@ -194,12 +196,15 @@ async def _register_ws(hass: HomeAssistant) -> None:
         connection: websocket_api.ActiveConnection,
         msg: dict[str, Any],
     ) -> None:
-        """Update the base-load sensor entity ID."""
+        """Update the base-load sensor entity ID and optional display name."""
         coordinator = _coordinator(hass)
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
             return
-        await coordinator.async_update_base_load_entity(msg["base_load_entity"])
+        await coordinator.async_update_base_load_entity(
+            msg["base_load_entity"],
+            name=msg.get("base_load_name"),
+        )
         connection.send_result(msg["id"], _config_payload(coordinator))
 
     @websocket_api.websocket_command(
