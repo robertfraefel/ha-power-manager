@@ -129,12 +129,12 @@ async def _register_panel(hass: HomeAssistant) -> None:
     if hass.data[DOMAIN].get("panel_registered"):
         return
 
-    panel_file = Path(__file__).parent / "panel" / PANEL_JS_NAME
+    panel_dir = Path(__file__).parent / "panel"
     await hass.http.async_register_static_paths(
         [
             StaticPathConfig(
-                f"{PANEL_STATIC_URL}/{PANEL_JS_NAME}",
-                str(panel_file),
+                PANEL_STATIC_URL,
+                str(panel_dir),
                 cache_headers=False,
             )
         ]

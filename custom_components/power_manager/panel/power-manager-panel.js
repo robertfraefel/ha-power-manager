@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.9';
+const PANEL_VERSION = '0.2.10';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -239,7 +239,7 @@ class PowerManagerPanel extends HTMLElement {
         .legend-sep { opacity: 0.35; }
       </style>
       <div class="wrap">
-        <h2>⚡ Power Manager</h2>
+        <h2><img src="/power_manager_static/logo.svg" style="height:28px;vertical-align:middle;margin-right:8px;margin-bottom:3px"> Power Manager</h2>
         <datalist id="sensorEntitiesList"></datalist>
         <datalist id="switchEntitiesList"></datalist>
 
