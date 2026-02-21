@@ -27,6 +27,9 @@
  *  - Small square  — actual HA switch state (blue = ON, grey = OFF, outlined = unknown)
  */
 
+/** Increment this whenever the panel JS changes. Shown in the summary bar. */
+const PANEL_VERSION = '0.2.1';
+
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
  *
@@ -408,7 +411,8 @@ class PowerManagerPanel extends HTMLElement {
         <div class="stat"><div class="stat-label">Remaining</div><div class="stat-value">${fmt(remaining)}</div></div>
         <div class="stat"><div class="stat-label">Scan interval</div><div class="stat-value">${data.scan_interval_seconds}s</div></div>
         <div class="stat"><div class="stat-label">Status</div><div class="stat-value">${data.running ? '🟢 Running' : '🔴 Stopped'}</div></div>
-        <div class="stat"><div class="stat-label">Version</div><div class="stat-value" style="font-size:.9em">${data.integration_version}</div></div>
+        <div class="stat"><div class="stat-label">Backend</div><div class="stat-value" style="font-size:.9em">${data.integration_version}</div></div>
+        <div class="stat"><div class="stat-label">Panel</div><div class="stat-value" style="font-size:.9em">${PANEL_VERSION}</div></div>
       </div>
     `;
   }
