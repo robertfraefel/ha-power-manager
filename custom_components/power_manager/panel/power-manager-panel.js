@@ -38,13 +38,16 @@ class PowerManagerPanel extends HTMLElement {
   /**
    * Called by the browser when the element is inserted into the DOM.
    * Renders the static shell and wires up "Add" button handlers on first
-   * connection; skips re-initialisation on subsequent reconnects.
+   * connection; restarts the polling timer if the user navigated back.
    */
   connectedCallback() {
     if (!this._initialized) {
       this._renderShell();
       this._bind();
       this._initialized = true;
+    } else if (!this._pollTimer) {
+      // User navigated away (which cleared the timer) and came back
+      this._load();
     }
   }
 
@@ -57,6 +60,7 @@ class PowerManagerPanel extends HTMLElement {
       clearInterval(this._pollTimer);
       this._pollTimer = null;
     }
+    this._loading = false;
   }
 
   /**
@@ -345,7 +349,16 @@ class PowerManagerPanel extends HTMLElement {
    * @returns {Promise<void>}
    */
   async _load() {
-    const data = await this._ws('power_manager/get_config');
+    if (this._loading) return;
+    this._loading = true;
+    let data;
+    try {
+      data = await this._ws('power_manager/get_config');
+    } catch (err) {
+      console.error('[PowerManager] get_config failed:', err);
+      this._loading = false;
+      return;
+    }
     this._data = data;
 
     // Start auto-refresh timer on first successful load
@@ -368,6 +381,7 @@ class PowerManagerPanel extends HTMLElement {
     this._renderBaseLoad(data);
     this._renderProducers(data);
     this._renderConsumers(data);
+    this._loading = false;
   }
 
   // ── summary card ───────────────────────────────────────────────────────────
