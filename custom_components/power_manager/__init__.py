@@ -450,8 +450,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         coordinator = _coordinator(hass)
         if coordinator:
             consumers = coordinator.data.get("consumers", []) if coordinator.data else []
-            text = "
-".join(
+            text = "\n".join(
                 [
                     f"- {c.get('name')} | switch={c.get('switch_entity')} | power={c.get('power_entity')} | prio={c.get('priority')} | expected={c.get('expected_power')}W | min={c.get('min_run_minutes')}min"
                     for c in consumers
@@ -475,8 +474,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         coordinator = _coordinator(hass)
         if coordinator:
             producers = coordinator.data.get("producers", []) if coordinator.data else []
-            text = "
-".join([f"- {p.get('name')} | entity={p.get('entity_id')}" for p in producers])
+            text = "\n".join([f"- {p.get('name')} | entity={p.get('entity_id')}" for p in producers])
             if not text:
                 text = "No producers configured."
             await hass.services.async_call(
@@ -495,38 +493,26 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         coordinator = _coordinator(hass)
         if coordinator:
             data = _config_payload(coordinator)
-            producer_lines = "
-".join(
+            producer_lines = "\n".join(
                 [
                     f"  - {p.get('name')} | entity={p.get('entity_id')} | current_w={data.get('producer_states', {}).get(p.get('name'), {}).get('power', 'unknown')}"
                     for p in data.get("producers", [])
                 ]
             ) or "  - none"
-            consumer_lines = "
-".join(
+            consumer_lines = "\n".join(
                 [
                     f"  - {c.get('name')} | switch={c.get('switch_entity')} | power={c.get('power_entity')} | prio={c.get('priority')} | expected={c.get('expected_power')}W | min={c.get('min_run_minutes')}min"
                     for c in data.get("consumers", [])
                 ]
             ) or "  - none"
             text = (
-                f"integration_version: {data.get('integration_version')}
-"
-                f"running: {data.get('running')}
-"
-                f"base_load_entity: {data.get('base_load_entity')}
-"
-                f"base_load_current_w: {data.get('base_load_current_w')}
-"
-                f"scan_interval_seconds: {data.get('scan_interval_seconds')}
-
-"
-                f"producers:
-{producer_lines}
-
-"
-                f"consumers:
-{consumer_lines}"
+                f"integration_version: {data.get('integration_version')}\n"
+                f"running: {data.get('running')}\n"
+                f"base_load_entity: {data.get('base_load_entity')}\n"
+                f"base_load_current_w: {data.get('base_load_current_w')}\n"
+                f"scan_interval_seconds: {data.get('scan_interval_seconds')}\n\n"
+                f"producers:\n{producer_lines}\n\n"
+                f"consumers:\n{consumer_lines}"
             )
             await hass.services.async_call(
                 "persistent_notification",
