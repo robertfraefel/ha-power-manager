@@ -1,3 +1,16 @@
+"""
+Sensor platform for the Power Manager integration.
+
+Layer: BACKEND
+Exposes three read-only HA sensor entities derived from the coordinator's
+computed data:
+
+  - Power Manager Total Production  (sum of all producer entity values, W)
+  - Power Manager Base Load         (base-load sensor reading, W)
+  - Power Manager Power Surplus     (production minus base load, W)
+
+These sensors update automatically whenever the coordinator refreshes.
+"""
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity
@@ -15,6 +28,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
+    """Set up Power Manager sensor entities from a config entry."""
     coordinator: PowerManagerCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     entities = [
@@ -26,7 +40,17 @@ async def async_setup_entry(
 
 
 class PMSensor(CoordinatorEntity, SensorEntity):
-    def __init__(self, coordinator: PowerManagerCoordinator, key: str, name: str):
+    """A sensor entity that reflects a single key from the coordinator's data dict."""
+
+    def __init__(self, coordinator: PowerManagerCoordinator, key: str, name: str) -> None:
+        """
+        Initialise the sensor.
+
+        Args:
+            coordinator: The shared PowerManagerCoordinator instance.
+            key:         The coordinator.data key whose value this sensor exposes.
+            name:        Human-readable suffix appended to "Power Manager ".
+        """
         super().__init__(coordinator)
         self._key = key
         self._attr_name = f"Power Manager {name}"
@@ -35,4 +59,5 @@ class PMSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self):
+        """Return the current sensor value from coordinator data."""
         return self.coordinator.data.get(self._key)

@@ -1,4 +1,45 @@
+/**
+ * @file power-manager-panel.js
+ * @layer FRONTEND
+ *
+ * Custom Web Component rendered in the Home Assistant sidebar as the
+ * ⚡ Power Manager panel.  Communicates with the backend exclusively
+ * through the HA WebSocket API (power_manager/* commands).
+ *
+ * Refresh strategy
+ * ----------------
+ * Two complementary mechanisms keep the dashboard current:
+ *
+ *  1. **Full reload** (`_load`) — fires once on startup, then on a
+ *     `setInterval` matching `scan_interval_seconds`.  Fetches coordinator
+ *     state (surplus, decisions, config) via WS and re-renders all sections.
+ *
+ *  2. **Live entity update** (`_updateLiveValues`) — called on every
+ *     `set hass()` invocation (i.e. on every HA state change).  Walks DOM
+ *     elements tagged with `data-live-watt` or `data-live-switch` and
+ *     updates them directly from `hass.states`, so power readings and switch
+ *     state dots refresh in real time without a WS round-trip.
+ *
+ * Status dots
+ * -----------
+ * Each consumer row shows two overlaid dots:
+ *  - Large circle  — coordinator decision (green = ON, grey = OFF, outline = deactivated)
+ *  - Small square  — actual HA switch state (blue = ON, grey = OFF, outlined = unknown)
+ */
+
+/**
+ * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
+ *
+ * Registered as a custom element via `customElements.define`.  HA creates
+ * one instance per panel navigation and sets the `hass` property whenever
+ * the global HA state object changes.
+ */
 class PowerManagerPanel extends HTMLElement {
+  /**
+   * Called by the browser when the element is inserted into the DOM.
+   * Renders the static shell and wires up "Add" button handlers on first
+   * connection; skips re-initialisation on subsequent reconnects.
+   */
   connectedCallback() {
     if (!this._initialized) {
       this._renderShell();
@@ -7,6 +48,24 @@ class PowerManagerPanel extends HTMLElement {
     }
   }
 
+  /**
+   * Called when the element is removed from the DOM (e.g. user navigates away).
+   * Clears the auto-refresh timer to prevent memory leaks and stale WS calls.
+   */
+  disconnectedCallback() {
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer);
+      this._pollTimer = null;
+    }
+  }
+
+  /**
+   * HA calls this setter on every global state change.
+   * On first call it bootstraps the component; on subsequent calls it
+   * applies a lightweight live-value update without a full WS reload.
+   *
+   * @param {Object} hass - The Home Assistant frontend `hass` object.
+   */
   set hass(hass) {
     this._hass = hass;
     if (!this._initialized) {
@@ -14,61 +73,100 @@ class PowerManagerPanel extends HTMLElement {
       this._bind();
       this._initialized = true;
       this._load();
+    } else if (this._data) {
+      // Light update: refresh entity-based live values without a WS round-trip
+      this._updateLiveValues();
     }
   }
 
+  // ── helpers ────────────────────────────────────────────────────────────────
+
+  /**
+   * Send a WebSocket command to the backend and return the response.
+   *
+   * @param {string} type  - WS command type, e.g. `"power_manager/get_config"`.
+   * @param {Object} extra - Additional payload fields merged into the WS message.
+   * @returns {Promise<*>} Resolved with the server response.
+   */
   async _ws(type, extra = {}) {
     return this._hass.callWS({ type, ...extra });
   }
 
+  /**
+   * Return all known entity IDs for a given domain, merging live states with
+   * the entity registry so newly-added entities that haven't reported a state
+   * yet are still included in datalist autocomplete suggestions.
+   *
+   * @param {string} domain - HA domain, e.g. `"sensor"` or `"switch"`.
+   * @returns {Promise<string[]>} Sorted, deduplicated list of entity IDs.
+   */
   async _entitiesByDomain(domain) {
-    const stateEntities = Object.keys(this._hass?.states || {}).filter((entityId) =>
-      entityId.startsWith(`${domain}.`)
+    const stateEntities = Object.keys(this._hass?.states || {}).filter((id) =>
+      id.startsWith(`${domain}.`)
     );
-
     let registryEntities = [];
     try {
       const registry = await this._ws('config/entity_registry/list');
       registryEntities = (registry || [])
-        .map((entry) => entry?.entity_id)
-        .filter((entityId) => entityId && entityId.startsWith(`${domain}.`));
-    } catch (_err) {
-      // Fallback to states only if entity registry WS is unavailable
-    }
-
+        .map((e) => e?.entity_id)
+        .filter((id) => id && id.startsWith(`${domain}.`));
+    } catch (_) { /* fall back to states */ }
     return Array.from(new Set([...stateEntities, ...registryEntities])).sort();
   }
 
-  _datalistHtml(listId, options, selected = "") {
-    const normalizedSelected = selected || "";
-    const all = [...options];
-    if (normalizedSelected && !all.includes(normalizedSelected)) {
-      all.unshift(normalizedSelected);
-    }
-
-    return `<datalist id="${listId}">${all
-      .map((value) => `<option value="${value}"></option>`)
-      .join("")}</datalist>`;
-  }
-
-  _entityInput(inputId, listId, options, selected = "", placeholder = "") {
-    return `
-      <input id="${inputId}" list="${listId}" value="${selected || ''}" placeholder="${placeholder}" />
-      ${this._datalistHtml(listId, options, selected)}
-    `;
-  }
-
+  /**
+   * Convert a HA state object to watts, handling W / kW / MW units.
+   *
+   * @param {Object|undefined} stateObj - A `hass.states[entityId]` object.
+   * @returns {number} Value in watts, or `NaN` if unavailable/non-numeric.
+   */
   _toWatts(stateObj) {
     if (!stateObj) return NaN;
     const value = Number(stateObj.state);
     if (!Number.isFinite(value)) return NaN;
-
     const unit = String(stateObj.attributes?.unit_of_measurement || '').trim().toLowerCase();
     if (unit === 'kw' || unit === 'kilowatt' || unit === 'kilowatts') return value * 1000;
     if (unit === 'mw' || unit === 'megawatt' || unit === 'megawatts') return value * 1000000;
     return value;
   }
 
+  /**
+   * Refresh entity-state values in the DOM without a full WS reload.
+   *
+   * Walks elements tagged with:
+   *  - `data-live-watt`   — updates text content with the current watt reading.
+   *  - `data-live-switch` — updates the CSS class and title of the actual-state dot.
+   *
+   * Called on every `set hass()` invocation so values track HA state in real time.
+   */
+  _updateLiveValues() {
+    // Power sensor cells tagged with data-live-watt
+    this.querySelectorAll('[data-live-watt]').forEach((el) => {
+      const entityId = el.dataset.liveWatt;
+      if (!entityId) return;
+      const w = this._toWatts(this._hass?.states?.[entityId]);
+      if (Number.isFinite(w)) el.textContent = w.toFixed(1);
+    });
+
+    // Switch state dots tagged with data-live-switch
+    this.querySelectorAll('[data-live-switch]').forEach((el) => {
+      const entityId = el.dataset.liveSwitch;
+      if (!entityId) return;
+      const state = this._hass?.states?.[entityId]?.state;
+      const isOn = state === 'on';
+      const isUnknown = state === undefined || state === null;
+      el.className = `status-dot dot-actual ${isUnknown ? 'dot-actual-unknown' : (isOn ? 'dot-actual-on' : 'dot-actual-off')}`;
+      el.title = isUnknown ? 'Switch: unknown' : (isOn ? 'Switch: ON' : 'Switch: OFF');
+    });
+  }
+
+  // ── shell ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Write the full static HTML skeleton (styles, card containers, datalists,
+   * "Add" row inputs) into `this.innerHTML`.  Called once on first connection.
+   * Dynamic content (rows, summary tiles) is filled in by the render* methods.
+   */
   _renderShell() {
     this.innerHTML = `
       <style>
@@ -77,14 +175,10 @@ class PowerManagerPanel extends HTMLElement {
         h3 { margin: 0 0 8px; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.6; }
         .card { border: 1px solid var(--divider-color); border-radius: 10px; padding: 12px; margin: 6px 0; background: var(--card-background-color, var(--primary-background-color)); }
         /* Summary grid */
-        .summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; margin-bottom: 10px; }
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; }
         .stat { background: var(--secondary-background-color, rgba(0,0,0,.04)); border-radius: 6px; padding: 6px 10px; }
         .stat-label { font-size: 10px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }
         .stat-value { font-size: 1.05em; font-weight: 600; }
-        /* Base load row inside summary */
-        .base-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid var(--divider-color); }
-        .base-row label { font-size: 12px; opacity: 0.65; white-space: nowrap; }
-        .base-row input { flex: 1; min-width: 160px; max-width: 340px; padding: 4px 8px; font-size: 13px; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--primary-background-color); color: var(--primary-text-color); }
         /* Tables */
         .table-wrap { overflow-x: auto; margin: 0 0 8px; }
         table { width: 100%; border-collapse: collapse; white-space: nowrap; }
@@ -129,6 +223,7 @@ class PowerManagerPanel extends HTMLElement {
         <h2>⚡ Power Manager</h2>
         <datalist id="sensorEntitiesList"></datalist>
         <datalist id="switchEntitiesList"></datalist>
+
         <div id="summary" class="card">Loading…</div>
 
         <div class="card">
@@ -143,6 +238,16 @@ class PowerManagerPanel extends HTMLElement {
             <input id="newProdName" placeholder="Name" />
             <input id="newProdEntity" list="sensorEntitiesList" placeholder="sensor.pv_power" />
             <button id="addProd" class="btn-add">+ Add producer</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Base load</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Entity</th><th>Current W</th><th style="width:110px"></th></tr></thead>
+              <tbody id="baseRows"></tbody>
+            </table>
           </div>
         </div>
 
@@ -183,108 +288,144 @@ class PowerManagerPanel extends HTMLElement {
     `;
   }
 
+  // ── bind static buttons ────────────────────────────────────────────────────
+
+  /**
+   * Attach click handlers to the static "Add producer" and "Add consumer"
+   * buttons in the shell.  Row-level Save/Del handlers are attached per-row
+   * inside `_renderProducers` and `_renderConsumers`.
+   */
   _bind() {
     this.querySelector('#addProd').onclick = async () => {
-      await this._ws('power_manager/add_producer', {
-        name: this.querySelector('#newProdName').value.trim(),
-        entity_id: this.querySelector('#newProdEntity').value.trim(),
-      });
-      await this._load();
+      try {
+        await this._ws('power_manager/add_producer', {
+          name: this.querySelector('#newProdName').value.trim(),
+          entity_id: this.querySelector('#newProdEntity').value.trim(),
+        });
+        this.querySelector('#newProdName').value = '';
+        this.querySelector('#newProdEntity').value = '';
+        await this._load();
+      } catch (err) {
+        alert(`Failed to add producer: ${err?.message || err}`);
+      }
     };
 
     this.querySelector('#addCon').onclick = async () => {
-      const name = this.querySelector('#newConName').value.trim();
-      const switchEntity = this.querySelector('#newConSwitch').value.trim();
-      const powerEntity = this.querySelector('#newConPower').value.trim();
       const priorityNum = Number(this.querySelector('#newConPrio').value);
       const expectedNum = Number(this.querySelector('#newConExpected').value);
       const minNum = Number(this.querySelector('#newConMin').value);
-
-      const payload = {
-        name,
-        switch_entity: switchEntity,
-        power_entity: powerEntity,
-        priority: Number.isFinite(priorityNum) ? Math.round(priorityNum) : 1,
-        expected_power: Number.isFinite(expectedNum) ? expectedNum : 0,
-        min_run_minutes: Number.isFinite(minNum) ? minNum : 0,
-      };
-
       try {
-        await this._ws('power_manager/add_consumer', payload);
-        this.querySelector('#newConName').value = '';
-        this.querySelector('#newConSwitch').value = '';
-        this.querySelector('#newConPower').value = '';
-        this.querySelector('#newConPrio').value = '';
-        this.querySelector('#newConExpected').value = '';
-        this.querySelector('#newConMin').value = '';
+        await this._ws('power_manager/add_consumer', {
+          name: this.querySelector('#newConName').value.trim(),
+          switch_entity: this.querySelector('#newConSwitch').value.trim(),
+          power_entity: this.querySelector('#newConPower').value.trim(),
+          priority: Number.isFinite(priorityNum) ? Math.round(priorityNum) : 1,
+          expected_power: Number.isFinite(expectedNum) ? expectedNum : 0,
+          min_run_minutes: Number.isFinite(minNum) ? minNum : 0,
+        });
+        ['#newConName', '#newConSwitch', '#newConPower', '#newConPrio', '#newConExpected', '#newConMin']
+          .forEach((sel) => { this.querySelector(sel).value = ''; });
         await this._load();
       } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error('Failed to add consumer', err);
         alert(`Failed to add consumer: ${err?.message || err}`);
       }
     };
   }
 
+  // ── full data load ─────────────────────────────────────────────────────────
+
+  /**
+   * Fetch the full coordinator state via `power_manager/get_config`, populate
+   * entity datalists, and re-render all four sections (summary, base load,
+   * producers, consumers).
+   *
+   * Also starts the auto-refresh `setInterval` on the first successful call,
+   * using `scan_interval_seconds` from the response (minimum 5 s).
+   *
+   * @returns {Promise<void>}
+   */
   async _load() {
     const data = await this._ws('power_manager/get_config');
     this._data = data;
 
-    const sensorEntities = await this._entitiesByDomain('sensor');
-    const switchEntities = await this._entitiesByDomain('switch');
+    // Start auto-refresh timer on first successful load
+    if (!this._pollTimer) {
+      const interval = Math.max(5, Number(data.scan_interval_seconds) || 10) * 1000;
+      this._pollTimer = setInterval(() => this._load(), interval);
+    }
 
+    // Refresh entity datalists
+    const [sensorEntities, switchEntities] = await Promise.all([
+      this._entitiesByDomain('sensor'),
+      this._entitiesByDomain('switch'),
+    ]);
     this.querySelector('#sensorEntitiesList').innerHTML = sensorEntities
-      .map((value) => `<option value="${value}"></option>`)
-      .join('');
+      .map((v) => `<option value="${v}"></option>`).join('');
     this.querySelector('#switchEntitiesList').innerHTML = switchEntities
-      .map((value) => `<option value="${value}"></option>`)
-      .join('');
+      .map((v) => `<option value="${v}"></option>`).join('');
 
-    const summaryTotalProduction = Number(data.total_production ?? 0);
-    const summaryBaseLoad = Number(data.base_load ?? data.base_load_current_w ?? 0);
-    const summarySurplus = Number(data.surplus ?? (summaryTotalProduction - summaryBaseLoad));
-    const summaryRemainingSurplus = Number(data.remaining_surplus ?? summarySurplus);
+    this._renderSummary(data);
+    this._renderBaseLoad(data);
+    this._renderProducers(data);
+    this._renderConsumers(data);
+  }
 
+  // ── summary card ───────────────────────────────────────────────────────────
+
+  /**
+   * Render the top summary tile grid showing production, base load, surplus,
+   * remaining surplus, scan interval, running state, and version.
+   *
+   * @param {Object} data - Response from `power_manager/get_config`.
+   */
+  _renderSummary(data) {
+    const prod = Number(data.total_production ?? 0);
+    const base = Number(data.base_load ?? data.base_load_current_w ?? 0);
+    const surplus = Number(data.surplus ?? (prod - base));
+    const remaining = Number(data.remaining_surplus ?? surplus);
     const fmt = (v) => Number.isFinite(v) ? v.toFixed(1) + ' W' : 'n/a';
-    const surplusColor = summarySurplus >= 0 ? '#2e7d32' : '#b71c1c';
+    const surplusColor = surplus >= 0 ? '#2e7d32' : '#b71c1c';
 
     this.querySelector('#summary').innerHTML = `
       <div class="summary-grid">
-        <div class="stat">
-          <div class="stat-label">Production</div>
-          <div class="stat-value">${fmt(summaryTotalProduction)}</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Base load</div>
-          <div class="stat-value">${fmt(summaryBaseLoad)}</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Surplus</div>
-          <div class="stat-value" style="color:${surplusColor}">${fmt(summarySurplus)}</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Remaining</div>
-          <div class="stat-value">${fmt(summaryRemainingSurplus)}</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Scan interval</div>
-          <div class="stat-value">${data.scan_interval_seconds}s</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Status</div>
-          <div class="stat-value">${data.running ? '🟢 Running' : '🔴 Stopped'}</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Version</div>
-          <div class="stat-value" style="font-size:.95em">${data.integration_version}</div>
-        </div>
+        <div class="stat"><div class="stat-label">Production</div><div class="stat-value">${fmt(prod)}</div></div>
+        <div class="stat"><div class="stat-label">Base load</div><div class="stat-value">${fmt(base)}</div></div>
+        <div class="stat"><div class="stat-label">Surplus</div><div class="stat-value" style="color:${surplusColor}">${fmt(surplus)}</div></div>
+        <div class="stat"><div class="stat-label">Remaining</div><div class="stat-value">${fmt(remaining)}</div></div>
+        <div class="stat"><div class="stat-label">Scan interval</div><div class="stat-value">${data.scan_interval_seconds}s</div></div>
+        <div class="stat"><div class="stat-label">Status</div><div class="stat-value">${data.running ? '🟢 Running' : '🔴 Stopped'}</div></div>
+        <div class="stat"><div class="stat-label">Version</div><div class="stat-value" style="font-size:.9em">${data.integration_version}</div></div>
       </div>
-      <div class="base-row">
-        <label>Base load entity:</label>
-        <input id="baseEntity" list="sensorEntitiesList" value="${data.base_load_entity || ''}" placeholder="sensor.house_total_power" />
-        <button id="saveBase">Save</button>
-        <button id="delBase" class="btn-del">Clear</button>
-      </div>
+    `;
+  }
+
+  // ── base load card ─────────────────────────────────────────────────────────
+
+  /**
+   * Render the base load card with an editable entity ID input, live watt
+   * reading, Save and Clear buttons.
+   *
+   * The watt cell is tagged with `data-live-watt` so `_updateLiveValues()`
+   * keeps it current between full reloads.
+   *
+   * @param {Object} data - Response from `power_manager/get_config`.
+   */
+  _renderBaseLoad(data) {
+    const entityId = data.base_load_entity || '';
+    const liveW = this._toWatts(this._hass?.states?.[entityId]);
+    const displayW = Number.isFinite(liveW) ? liveW.toFixed(1) : (data.base_load_current_w ?? 'n/a');
+
+    const tbody = this.querySelector('#baseRows');
+    tbody.innerHTML = `
+      <tr>
+        <td>Base load</td>
+        <td><input id="baseEntity" list="sensorEntitiesList" value="${entityId}" placeholder="sensor.house_total_power" /></td>
+        <td data-live-watt="${entityId}">${displayW}</td>
+        <td style="white-space:nowrap">
+          <button id="saveBase">Save</button>
+          <button id="delBase" class="btn-del">Clear</button>
+        </td>
+      </tr>
     `;
 
     this.querySelector('#saveBase').onclick = async () => {
@@ -293,23 +434,37 @@ class PowerManagerPanel extends HTMLElement {
       });
       await this._load();
     };
-
     this.querySelector('#delBase').onclick = async () => {
-      await this._ws('power_manager/set_base', {
-        base_load_entity: '',
-      });
+      await this._ws('power_manager/set_base', { base_load_entity: '' });
       await this._load();
     };
+  }
 
+  // ── producers card ─────────────────────────────────────────────────────────
+
+  /**
+   * Render one table row per configured producer with editable name and
+   * entity_id inputs, a live watt cell (`data-live-watt`), Save and Del
+   * buttons.
+   *
+   * Passing `new_name` in the save payload allows the producer to be renamed
+   * in a single round-trip.
+   *
+   * @param {Object} data - Response from `power_manager/get_config`.
+   */
+  _renderProducers(data) {
     const prodRows = this.querySelector('#prodRows');
     prodRows.innerHTML = '';
     (data.producers || []).forEach((p) => {
+      const liveW = this._toWatts(this._hass?.states?.[p.entity_id]);
+      const displayW = Number.isFinite(liveW) ? liveW.toFixed(1)
+        : ((data.producer_states || {})[p.name]?.power ?? 'n/a');
+
       const tr = document.createElement('tr');
-      const current = (data.producer_states || {})[p.name]?.power ?? 'n/a';
       tr.innerHTML = `
         <td><input data-k="name" value="${p.name}" /></td>
         <td><input data-k="entity" list="sensorEntitiesList" value="${p.entity_id || ''}" placeholder="sensor.xxx" /></td>
-        <td>${current}</td>
+        <td data-live-watt="${p.entity_id || ''}">${displayW}</td>
         <td style="white-space:nowrap">
           <button data-a="save">Save</button>
           <button data-a="del" class="btn-del">Del</button>
@@ -319,15 +474,11 @@ class PowerManagerPanel extends HTMLElement {
         const newName = tr.querySelector('[data-k="name"]').value.trim();
         const entity = tr.querySelector('[data-k="entity"]').value.trim();
         const payload = { name: p.name, entity_id: entity };
-        if (newName && newName !== p.name) {
-          payload.new_name = newName;
-        }
+        if (newName && newName !== p.name) payload.new_name = newName;
         try {
           await this._ws('power_manager/update_producer', payload);
           await this._load();
         } catch (err) {
-          // eslint-disable-next-line no-console
-          console.error('Failed to save producer', err);
           alert(`Failed to save producer: ${err?.message || err}`);
         }
       };
@@ -337,87 +488,100 @@ class PowerManagerPanel extends HTMLElement {
       };
       prodRows.appendChild(tr);
     });
+  }
 
+  // ── consumers card ─────────────────────────────────────────────────────────
+
+  /**
+   * Render one table row per configured consumer.
+   *
+   * Each row contains:
+   *  - Two-dot status indicator (coordinator decision + actual switch state)
+   *  - Editable fields: name, switch entity, power entity, priority,
+   *    expected power, min runtime, mode dropdown
+   *  - Live watt cell tagged with `data-live-watt`
+   *  - Actual-state dot tagged with `data-live-switch`
+   *  - Decision text column (surplus budget reasoning computed client-side)
+   *  - Save and Del buttons
+   *
+   * The decision text is computed locally by replaying the coordinator's
+   * priority-ordered allocation logic over the snapshot data, so it does not
+   * require an extra WS call.
+   *
+   * @param {Object} data - Response from `power_manager/get_config`.
+   */
+  _renderConsumers(data) {
+    // Pre-compute decision text per consumer
     const conditionByConsumer = {};
     let remainingSurplus = Number(data.surplus || 0);
     const nowTs = Date.now() / 1000;
-    const sortedForDecision = [...(data.consumers || [])].sort(
-      (a, b) => Number(a.priority ?? 999) - Number(b.priority ?? 999)
-    );
-    sortedForDecision.forEach((c) => {
-      const state = (data.consumer_states || {})[c.name] || {};
-      const mode = state.mode || c.mode || 'auto';
-      const expected = Number(c.expected_power || 0);
-      const holdActive = Number(state.on_until || 0) > nowTs;
-
-      let reason = 'auto: off';
-      if (mode === 'deactivated') {
-        reason = 'deactivated';
-      } else if (mode === 'force_on') {
-        reason = 'force_on';
-      } else if (mode === 'force_off') {
-        reason = 'force_off';
-      } else if (remainingSurplus >= expected) {
-        reason = `auto: surplus ok (${remainingSurplus.toFixed(1)}W ≥ ${expected.toFixed(1)}W)`;
-        remainingSurplus -= expected;
-      } else if (holdActive) {
-        const secLeft = Math.max(0, Math.round(Number(state.on_until || 0) - nowTs));
-        reason = `auto: min-run hold (${secLeft}s left)`;
-      } else {
-        reason = `auto: no surplus (${remainingSurplus.toFixed(1)}W < ${expected.toFixed(1)}W)`;
-      }
-
-      conditionByConsumer[c.name] = reason;
-    });
+    [...(data.consumers || [])]
+      .sort((a, b) => Number(a.priority ?? 999) - Number(b.priority ?? 999))
+      .forEach((c) => {
+        const state = (data.consumer_states || {})[c.name] || {};
+        const mode = state.mode || c.mode || 'auto';
+        const expected = Number(c.expected_power || 0);
+        let reason;
+        if (mode === 'deactivated') {
+          reason = 'deactivated';
+        } else if (mode === 'force_on') {
+          reason = 'force_on';
+        } else if (mode === 'force_off') {
+          reason = 'force_off';
+        } else if (remainingSurplus >= expected) {
+          reason = `surplus ok (${remainingSurplus.toFixed(1)}W ≥ ${expected.toFixed(1)}W)`;
+          remainingSurplus -= expected;
+        } else if (Number(state.on_until || 0) > nowTs) {
+          const secLeft = Math.max(0, Math.round(Number(state.on_until) - nowTs));
+          reason = `min-run hold (${secLeft}s left)`;
+        } else {
+          reason = `no surplus (${remainingSurplus.toFixed(1)}W < ${expected.toFixed(1)}W)`;
+        }
+        conditionByConsumer[c.name] = reason;
+      });
 
     const consRows = this.querySelector('#consRows');
     consRows.innerHTML = '';
     (data.consumers || []).forEach((c) => {
-      const tr = document.createElement('tr');
-      const currentWFromCoordinator = (data.consumer_states || {})[c.name]?.power;
-      const powerEntityId = (c.power_entity || '').trim();
-      const stateObj = powerEntityId ? this._hass?.states?.[powerEntityId] : undefined;
-      const hassStateNum = this._toWatts(stateObj);
-      const coordNum = Number(currentWFromCoordinator);
-      const displayNum = Number.isFinite(hassStateNum)
-        ? hassStateNum
-        : (Number.isFinite(coordNum) ? coordNum : NaN);
-      const currentW = Number.isFinite(displayNum) ? displayNum.toFixed(1) : 'n/a';
-      const decision = conditionByConsumer[c.name] || 'n/a';
-
-      // Status: coordinator decision + actual switch state
       const stateData = (data.consumer_states || {})[c.name] || {};
-      const switchEntityId = c.switch_entity || '';
-      const switchStateObj = switchEntityId ? this._hass?.states?.[switchEntityId] : null;
+
+      // Power value — prefer live HA state
+      const liveW = this._toWatts(this._hass?.states?.[c.power_entity]);
+      const coordW = Number(stateData.power);
+      const displayW = Number.isFinite(liveW) ? liveW.toFixed(1)
+        : (Number.isFinite(coordW) ? coordW.toFixed(1) : 'n/a');
+
+      // Status dots
       const isDeactivated = (stateData.mode || 'auto') === 'deactivated';
-
-      // Coordinator decision (large dot)
       const coordDecision = Boolean(stateData.is_on);
-      const coordDotClass = isDeactivated
-        ? 'dot-decision-deactivated'
+      const coordDotClass = isDeactivated ? 'dot-decision-deactivated'
         : (coordDecision ? 'dot-decision-on' : 'dot-decision-off');
-      const coordTitle = isDeactivated ? 'Decision: deactivated' : (coordDecision ? 'Decision: ON' : 'Decision: OFF');
+      const coordTitle = isDeactivated ? 'Decision: deactivated'
+        : (coordDecision ? 'Decision: ON' : 'Decision: OFF');
 
-      // Actual switch state (small square dot)
-      const actualOn = switchStateObj ? switchStateObj.state === 'on' : null;
-      const actualDotClass = actualOn === null
-        ? 'dot-actual-unknown'
+      const switchState = this._hass?.states?.[c.switch_entity]?.state;
+      const actualOn = switchState === 'on';
+      const actualDotClass = switchState === undefined ? 'dot-actual-unknown'
         : (actualOn ? 'dot-actual-on' : 'dot-actual-off');
-      const actualTitle = actualOn === null
-        ? 'Switch: unknown'
+      const actualTitle = switchState === undefined ? 'Switch: unknown'
         : (actualOn ? 'Switch: ON' : 'Switch: OFF');
 
+      // Current runtime mode (from coordinator) — used to pre-select dropdown
+      const currentMode = stateData.mode || c.mode || 'auto';
+
+      const tr = document.createElement('tr');
       tr.innerHTML = `
         <td style="text-align:center">
           <div class="status-cell">
             <span class="status-dot dot-decision ${coordDotClass}" title="${coordTitle}"></span>
-            <span class="status-dot dot-actual ${actualDotClass}" title="${actualTitle}"></span>
+            <span class="status-dot dot-actual ${actualDotClass}" title="${actualTitle}"
+                  data-live-switch="${c.switch_entity || ''}"></span>
           </div>
         </td>
         <td><input data-k="name" value="${c.name}" /></td>
         <td><input data-k="switch" list="switchEntitiesList" value="${c.switch_entity || ''}" placeholder="switch.xxx" /></td>
         <td><input data-k="power" list="sensorEntitiesList" value="${c.power_entity || ''}" placeholder="sensor.xxx" /></td>
-        <td style="text-align:right;padding-right:12px">${currentW}</td>
+        <td style="text-align:right;padding-right:10px" data-live-watt="${c.power_entity || ''}">${displayW}</td>
         <td><input data-k="priority" type="number" value="${c.priority ?? 1}" /></td>
         <td><input data-k="expected" type="number" value="${c.expected_power ?? 0}" /></td>
         <td><input data-k="min" type="number" value="${c.min_run_minutes ?? 0}" /></td>
@@ -429,19 +593,21 @@ class PowerManagerPanel extends HTMLElement {
             <option value="deactivated">deactivated</option>
           </select>
         </td>
-        <td style="font-size:12px;max-width:200px;white-space:normal">${decision}</td>
+        <td style="font-size:11px;max-width:200px;white-space:normal">${conditionByConsumer[c.name] || 'n/a'}</td>
         <td style="white-space:nowrap">
           <button data-a="save">Save</button>
           <button data-a="del" class="btn-del">Del</button>
         </td>
       `;
-      tr.querySelector('[data-k="mode"]').value = c.mode || 'auto';
+
+      // Set dropdown to current runtime mode
+      tr.querySelector('[data-k="mode"]').value = currentMode;
+
       tr.querySelector('[data-a="save"]').onclick = async () => {
         const newName = tr.querySelector('[data-k="name"]').value.trim();
         const priorityNum = Number(tr.querySelector('[data-k="priority"]').value);
         const expectedNum = Number(tr.querySelector('[data-k="expected"]').value);
         const minNum = Number(tr.querySelector('[data-k="min"]').value);
-
         const payload = {
           name: c.name,
           switch_entity: tr.querySelector('[data-k="switch"]').value.trim(),
@@ -451,17 +617,11 @@ class PowerManagerPanel extends HTMLElement {
           min_run_minutes: Number.isFinite(minNum) ? minNum : Number(c.min_run_minutes ?? 0),
           mode: tr.querySelector('[data-k="mode"]').value,
         };
-
-        if (newName && newName !== c.name) {
-          payload.new_name = newName;
-        }
-
+        if (newName && newName !== c.name) payload.new_name = newName;
         try {
           await this._ws('power_manager/update_consumer', payload);
           await this._load();
         } catch (err) {
-          // eslint-disable-next-line no-console
-          console.error('Failed to save consumer', err);
           alert(`Failed to save consumer: ${err?.message || err}`);
         }
       };

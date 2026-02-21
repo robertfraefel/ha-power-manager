@@ -1,3 +1,29 @@
+"""
+Config flow for the Power Manager integration.
+
+Layer: BACKEND
+
+Provides two HA UI flows:
+
+PowerManagerConfigFlow
+    Shown once when the user first adds the integration via
+    Settings → Devices & Services → Add Integration.  Collects the
+    base-load entity, scan interval, and initial producer/consumer lists
+    (as JSON strings) and creates the ConfigEntry.
+
+PowerManagerOptionsFlow
+    Shown when the user clicks "Configure" on the existing entry.  Offers
+    a multi-step wizard (add / update / remove producers and consumers,
+    change base settings) that mutates in-memory lists and saves them as
+    ConfigEntry options when the user chooses "Save and close".
+
+Data format
+-----------
+Producers and consumers are stored as JSON strings inside the ConfigEntry
+data/options dict (keys ``producers`` and ``consumers``).  The coordinator
+parses these at startup and then manages its own runtime copy in HA's
+persistent .storage file.
+"""
 from __future__ import annotations
 
 import json
@@ -20,6 +46,7 @@ from .const import (
 
 
 def _loads_list(raw: str) -> list[dict[str, Any]]:
+    """Parse a JSON string and return a list of dicts, ignoring non-dict items."""
     data = json.loads(raw)
     if isinstance(data, list):
         return [x for x in data if isinstance(x, dict)]
@@ -27,9 +54,12 @@ def _loads_list(raw: str) -> list[dict[str, Any]]:
 
 
 class PowerManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle the initial setup flow shown when the integration is first added."""
+
     VERSION = 2
 
     async def async_step_user(self, user_input=None):
+        """Show the single-page setup form; create the entry on valid submission."""
         errors = {}
         if user_input is not None:
             try:
@@ -61,11 +91,21 @@ class PowerManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
+        """Return the options flow handler for an existing entry."""
         return PowerManagerOptionsFlow(config_entry)
 
 
 class PowerManagerOptionsFlow(config_entries.OptionsFlow):
-    def __init__(self, config_entry: config_entries.ConfigEntry):
+    """Multi-step wizard for editing producers and consumers after initial setup.
+
+    The wizard stores in-memory copies of the producer/consumer lists and
+    only persists them when the user chooses "Save and close" in the init
+    step, which calls ``async_create_entry`` and triggers a coordinator
+    reload.
+    """
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialise the flow with current entry data merged with any saved options."""
         self._config_entry = config_entry
         current = {**config_entry.data, **config_entry.options}
         self._base_load_entity: str = current.get(CONF_BASE_LOAD_ENTITY, "sensor.house_total_power")
@@ -74,6 +114,7 @@ class PowerManagerOptionsFlow(config_entries.OptionsFlow):
         self._consumers: list[dict[str, Any]] = _loads_list(current.get(CONF_CONSUMERS, "[]"))
 
     def _save_payload(self) -> dict[str, Any]:
+        """Serialise current in-memory state to a dict suitable for ``async_create_entry``."""
         return {
             CONF_BASE_LOAD_ENTITY: self._base_load_entity,
             CONF_SCAN_INTERVAL: self._scan_interval,
@@ -82,6 +123,7 @@ class PowerManagerOptionsFlow(config_entries.OptionsFlow):
         }
 
     async def async_step_init(self, user_input=None):
+        """Show the action-picker menu; dispatch to sub-steps or save and exit."""
         if user_input is not None:
             action = user_input["action"]
             if action == "finish":
@@ -141,6 +183,7 @@ class PowerManagerOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_base(self, user_input=None):
+        """Edit the base-load entity ID and scan interval."""
         if user_input is not None:
             self._base_load_entity = user_input[CONF_BASE_LOAD_ENTITY]
             self._scan_interval = user_input[CONF_SCAN_INTERVAL]
@@ -157,6 +200,7 @@ class PowerManagerOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(step_id="base", data_schema=schema)
 
     async def async_step_add_producer(self, user_input=None):
+        """Collect name and entity_id for a new producer; reject duplicate names."""
         errors = {}
         if user_input is not None:
             name = user_input["name"]
@@ -177,6 +221,7 @@ class PowerManagerOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(step_id="add_producer", data_schema=schema, errors=errors)
 
     async def async_step_update_producer_select(self, user_input=None):
+        """Let the user pick which producer to edit by name."""
         if not self._producers:
             return await self.async_step_init()
 
@@ -189,6 +234,7 @@ class PowerManagerOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(step_id="update_producer_select", data_schema=schema)
 
     async def async_step_update_producer_edit(self, user_input=None):
+        """Edit the entity_id of the previously selected producer."""
         idx = next(
             (i for i, p in enumerate(self._producers) if p.get("name") == self._selected_producer),
             -1,
@@ -209,6 +255,7 @@ class PowerManagerOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(step_id="update_producer_edit", data_schema=schema)
 
     async def async_step_remove_producer(self, user_input=None):
+        """Let the user select a producer by name and remove it from the list."""
         if not self._producers:
             return await self.async_step_init()
 
@@ -222,6 +269,7 @@ class PowerManagerOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(step_id="remove_producer", data_schema=schema)
 
     async def async_step_add_consumer(self, user_input=None):
+        """Collect all fields for a new consumer; reject duplicate names."""
         errors = {}
         if user_input is not None:
             name = user_input["name"]
@@ -253,6 +301,7 @@ class PowerManagerOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(step_id="add_consumer", data_schema=schema, errors=errors)
 
     async def async_step_update_consumer_select(self, user_input=None):
+        """Let the user pick which consumer to edit by name."""
         if not self._consumers:
             return await self.async_step_init()
 
@@ -265,6 +314,7 @@ class PowerManagerOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(step_id="update_consumer_select", data_schema=schema)
 
     async def async_step_update_consumer_edit(self, user_input=None):
+        """Edit all editable fields of the previously selected consumer."""
         idx = next(
             (i for i, c in enumerate(self._consumers) if c.get("name") == self._selected_consumer),
             -1,
@@ -295,6 +345,7 @@ class PowerManagerOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(step_id="update_consumer_edit", data_schema=schema)
 
     async def async_step_remove_consumer(self, user_input=None):
+        """Let the user select a consumer by name and remove it from the list."""
         if not self._consumers:
             return await self.async_step_init()
 

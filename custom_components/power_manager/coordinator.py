@@ -1,3 +1,48 @@
+"""
+Core coordinator for the Power Manager integration.
+
+Layer: BACKEND
+
+This module contains the central logic of the integration:
+
+  PowerManagerCoordinator
+      Inherits from DataUpdateCoordinator and is the single source of truth
+      for all runtime state.  It polls HA entity states on a configurable
+      interval, computes the renewable-energy surplus, and controls consumer
+      switches accordingly.
+
+  ConsumerRuntime
+      Lightweight dataclass that tracks per-consumer transient state
+      (current mode, minimum-runtime hold timestamp, last on/off decision).
+      This data is NOT persisted — it is rebuilt from saved modes on startup.
+
+Surplus algorithm (auto mode)
+------------------------------
+1. Sum all producer sensor values  → total_production
+2. Read the base-load sensor       → base_load
+3. surplus = total_production - base_load
+4. Sort consumers by ascending priority.
+5. For each consumer:
+     - deactivated : skip entirely (switch not touched, surplus not deducted)
+     - force_on    : turn on unconditionally
+     - force_off   : turn off unconditionally
+     - auto        : apply hysteresis threshold; turn on if surplus allows,
+                     enforce min-runtime lock, deduct expected_power from
+                     remaining surplus if on.
+
+Hysteresis (SURPLUS_HYSTERESIS_FACTOR = 5 %)
+---------------------------------------------
+To avoid rapid toggling near the threshold:
+  - Turn ON  threshold = expected * 1.05  (requires a bit more surplus)
+  - Stay ON  threshold = expected * 0.95  (turns off only when clearly low)
+
+Persistence
+-----------
+Configuration (producers, consumers, runtime modes, running flag) is saved to
+HA's Store (.storage/power_manager_<entry_id>) after every mutation and on
+integration unload.  Transient runtime values (is_on, on_until_ts) are NOT
+saved — they reset on each restart.
+"""
 from __future__ import annotations
 
 import json
@@ -31,30 +76,59 @@ _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
 
-# Hysteresis band applied to the auto-mode turn-on/turn-off surplus threshold.
-# A consumer that is currently OFF requires surplus >= expected * (1 + factor).
-# A consumer that is currently ON stays on while surplus >= expected * (1 - factor).
+# Hysteresis band applied to the auto-mode surplus threshold.
+# OFF → ON requires surplus >= expected * (1 + FACTOR).
+# ON  → OFF requires surplus <  expected * (1 - FACTOR).
 # This prevents rapid toggling when solar output fluctuates near the threshold.
 SURPLUS_HYSTERESIS_FACTOR = 0.05  # 5 %
 
 
 @dataclass
 class ConsumerRuntime:
+    """Transient per-consumer state tracked between coordinator cycles.
+
+    Attributes:
+        mode:        Current operating mode (auto / force_on / force_off /
+                     deactivated).  Persisted to storage.
+        on_until_ts: Monotonic timestamp (hass.loop.time()) until which the
+                     consumer must stay on to honour min_run_minutes.
+                     Resets to 0 on restart.
+        is_on:       Whether the coordinator decided ON in the last cycle.
+                     Used for hysteresis; resets to False on restart.
+    """
+
     mode: str = MODE_AUTO
     on_until_ts: float = 0.0
-    is_on: bool = False  # tracks last-cycle on/off for hysteresis
+    is_on: bool = False  # tracks last-cycle decision for hysteresis
 
 
 class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Central coordinator that manages the surplus control loop.
+
+    Responsibilities
+    ----------------
+    - Poll HA entity states on a timer (DataUpdateCoordinator).
+    - Compute surplus and allocate it to consumers by priority.
+    - Call homeassistant.turn_on / turn_off for each consumer switch.
+    - Persist configuration to HA Store after every mutation.
+    - Expose a data dict consumed by sensor / switch / select platforms and
+      the WebSocket API.
+    """
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialise coordinator from a config entry.
+
+        Merges entry.data and entry.options so both the initial setup values
+        and any later options-flow overrides are respected.
+        """
         merged = {**entry.data, **entry.options}
-        self._base_load_entity = merged.get(CONF_BASE_LOAD_ENTITY, "sensor.house_total_power")
+        self._base_load_entity: str = merged.get(CONF_BASE_LOAD_ENTITY, "sensor.house_total_power")
         self._producers: list[dict[str, Any]] = json.loads(merged.get(CONF_PRODUCERS, "[]"))
         self._consumers: list[dict[str, Any]] = json.loads(merged.get(CONF_CONSUMERS, "[]"))
         self._runtime: dict[str, ConsumerRuntime] = {
             c["name"]: ConsumerRuntime() for c in self._consumers
         }
-        self.running = True
+        self.running: bool = True
 
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}"
@@ -69,6 +143,12 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def async_initialize(self) -> None:
+        """Load persisted state from HA Store and rebuild runtime structures.
+
+        Called once from async_setup_entry before the first coordinator
+        refresh.  If no stored state exists the coordinator starts with the
+        values from the config entry.
+        """
         stored = await self._store.async_load()
         if not stored:
             _LOGGER.debug("No stored state found, using defaults")
@@ -79,6 +159,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._consumers = stored.get("consumers", self._consumers)
         self.running = bool(stored.get("running", self.running))
 
+        # Rebuild ConsumerRuntime objects from the saved mode map.
         runtime_modes = stored.get("runtime_modes", {})
         current_runtime: dict[str, ConsumerRuntime] = {}
         for c in self._consumers:
@@ -97,7 +178,13 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.running,
         )
 
+    # ── private helpers ────────────────────────────────────────────────────
+
     def _state_float(self, entity_id: str) -> float:
+        """Read an HA entity state as watts, handling kW/MW unit conversion.
+
+        Returns 0.0 if the entity is unavailable or its state is not numeric.
+        """
         st = self.hass.states.get(entity_id)
         if not st:
             _LOGGER.debug("Entity not found or not loaded: %s", entity_id)
@@ -114,9 +201,10 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if unit in {"mw", "megawatt", "megawatts"}:
             return value * 1_000_000.0
 
-        return value
+        return value  # assumed watts
 
     async def _set_switch(self, entity_id: str, on: bool) -> None:
+        """Call homeassistant.turn_on or turn_off for a switch entity."""
         service = "turn_on" if on else "turn_off"
         await self.hass.services.async_call(
             "homeassistant",
@@ -126,19 +214,27 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def _async_save(self) -> None:
+        """Persist current configuration and runtime modes to HA Store."""
         payload = {
             "base_load_entity": self._base_load_entity,
             "producers": self._producers,
             "consumers": self._consumers,
             "running": self.running,
+            # Only modes are persisted; transient fields (is_on, on_until_ts) are not.
             "runtime_modes": {name: rt.mode for name, rt in self._runtime.items()},
         }
         await self._store.async_save(payload)
 
     async def async_save_state(self) -> None:
+        """Public alias for _async_save — called by async_unload_entry."""
         await self._async_save()
 
     def _sync_runtime(self) -> None:
+        """Keep _runtime in sync with _consumers after add/remove operations.
+
+        - Removes runtime entries for consumers that no longer exist.
+        - Adds a default ConsumerRuntime for newly added consumers.
+        """
         valid_names = {c["name"] for c in self._consumers}
         self._runtime = {
             name: rt for name, rt in self._runtime.items() if name in valid_names
@@ -148,12 +244,24 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @staticmethod
     def _find_idx_by_name(items: list[dict[str, Any]], name: str) -> int:
+        """Return the index of the first item whose 'name' key matches, or -1."""
         for idx, item in enumerate(items):
             if item.get("name") == name:
                 return idx
         return -1
 
+    # ── public mutation API ────────────────────────────────────────────────
+
     async def async_set_consumer_mode(self, consumer_name: str, mode: str) -> None:
+        """Set the operating mode of a consumer and trigger a refresh.
+
+        Args:
+            consumer_name: Name of the consumer to update.
+            mode:          One of the VALID_MODES constants.
+
+        Raises:
+            UpdateFailed: If the mode string is invalid or the consumer is unknown.
+        """
         if mode not in VALID_MODES:
             raise UpdateFailed(f"invalid mode: {mode}")
         if consumer_name not in self._runtime:
@@ -164,12 +272,18 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_request_refresh()
 
     async def async_update_base_load_entity(self, entity_id: str) -> None:
+        """Change the base-load sensor entity ID and trigger a refresh."""
         self._base_load_entity = entity_id
         _LOGGER.info("Base load entity updated to %s", entity_id)
         await self._async_save()
         await self.async_request_refresh()
 
     async def async_add_producer(self, name: str, entity_id: str) -> None:
+        """Add a new producer power sensor.
+
+        Raises:
+            UpdateFailed: If a producer with this name already exists.
+        """
         if self._find_idx_by_name(self._producers, name) >= 0:
             raise UpdateFailed(f"producer already exists: {name}")
         self._producers.append({"name": name, "entity_id": entity_id})
@@ -178,6 +292,11 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_request_refresh()
 
     async def async_remove_producer(self, name: str) -> None:
+        """Remove a producer by name.
+
+        Raises:
+            UpdateFailed: If no producer with this name exists.
+        """
         idx = self._find_idx_by_name(self._producers, name)
         if idx < 0:
             raise UpdateFailed(f"unknown producer: {name}")
@@ -189,6 +308,16 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_update_producer(
         self, name: str, entity_id: str, new_name: str | None = None
     ) -> None:
+        """Update a producer's entity_id and optionally rename it.
+
+        Args:
+            name:      Current name of the producer to update.
+            entity_id: New sensor entity ID.
+            new_name:  If provided and different from name, rename the producer.
+
+        Raises:
+            UpdateFailed: If the producer is not found or new_name already exists.
+        """
         idx = self._find_idx_by_name(self._producers, name)
         if idx < 0:
             raise UpdateFailed(f"unknown producer: {name}")
@@ -210,6 +339,19 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         expected_power: float,
         min_run_minutes: float,
     ) -> None:
+        """Add a new consumer load.
+
+        Args:
+            name:            Unique display name.
+            switch_entity:   HA switch entity ID to control.
+            power_entity:    HA sensor entity ID measuring actual consumption.
+            priority:        Lower number = higher priority (allocated first).
+            expected_power:  Estimated power draw used for surplus budgeting (W).
+            min_run_minutes: Minimum on-time per cycle to protect appliances (min).
+
+        Raises:
+            UpdateFailed: If a consumer with this name already exists.
+        """
         if self._find_idx_by_name(self._consumers, name) >= 0:
             raise UpdateFailed(f"consumer already exists: {name}")
         self._consumers.append(
@@ -241,6 +383,23 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         min_run_minutes: float | None = None,
         mode: str | None = None,
     ) -> None:
+        """Update one or more fields of an existing consumer.
+
+        All parameters except name are optional; omitted ones are left unchanged.
+
+        Args:
+            name:            Current name of the consumer to update.
+            new_name:        Rename the consumer if provided and different.
+            switch_entity:   New switch entity ID.
+            power_entity:    New power sensor entity ID.
+            priority:        New priority value.
+            expected_power:  New expected power draw (W).
+            min_run_minutes: New minimum runtime (min).
+            mode:            New operating mode.
+
+        Raises:
+            UpdateFailed: If consumer not found, new_name conflicts, or mode invalid.
+        """
         idx = self._find_idx_by_name(self._consumers, name)
         if idx < 0:
             raise UpdateFailed(f"unknown consumer: {name}")
@@ -251,6 +410,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._find_idx_by_name(self._consumers, new_name) >= 0:
                 raise UpdateFailed(f"consumer already exists: {new_name}")
             c["name"] = new_name
+            # Carry runtime state over to the new name.
             if name in self._runtime:
                 self._runtime[new_name] = self._runtime.pop(name)
 
@@ -277,6 +437,11 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_request_refresh()
 
     async def async_remove_consumer(self, name: str) -> None:
+        """Remove a consumer by name.
+
+        Raises:
+            UpdateFailed: If no consumer with this name exists.
+        """
         idx = self._find_idx_by_name(self._consumers, name)
         if idx < 0:
             raise UpdateFailed(f"unknown consumer: {name}")
@@ -286,8 +451,26 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_save()
         await self.async_request_refresh()
 
+    # ── coordinator update cycle ───────────────────────────────────────────
+
     async def _async_update_data(self) -> dict[str, Any]:
+        """Fetch sensor states, compute surplus, and control consumer switches.
+
+        Called automatically by DataUpdateCoordinator on every scan interval.
+        Returns a dict that becomes coordinator.data, consumed by all entity
+        platforms and the WebSocket API.
+
+        Returns:
+            dict with keys: running, base_load_entity, scan_interval_seconds,
+            total_production, base_load, surplus, remaining_surplus,
+            producers, producer_states, consumers, consumer_states,
+            unit, device_class.
+
+        Raises:
+            UpdateFailed: On any unexpected error during the update cycle.
+        """
         try:
+            # ── producers ──────────────────────────────────────────────────
             producer_states: dict[str, dict[str, Any]] = {}
             total_production = 0.0
             for p in self._producers:
@@ -300,6 +483,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "power": current_power,
                 }
 
+            # ── base load and surplus ──────────────────────────────────────
             base_load = self._state_float(self._base_load_entity)
             surplus = total_production - base_load
             remaining_surplus = surplus
@@ -309,6 +493,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 total_production, base_load, surplus,
             )
 
+            # ── consumers ─────────────────────────────────────────────────
             consumer_states: dict[str, dict[str, Any]] = {}
 
             self._sync_runtime()
@@ -329,6 +514,8 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
                 if self.running:
                     if runtime.mode == MODE_DEACTIVATED:
+                        # Deactivated: skip entirely — do not touch the switch
+                        # and do not deduct from the surplus budget.
                         _LOGGER.debug("Consumer %r: deactivated – skipped", name)
                         runtime.is_on = False
                         consumer_states[name] = {
@@ -338,7 +525,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "switch_entity": switch_entity,
                             "is_on": False,
                         }
-                        continue  # don't touch the switch; don't deduct surplus
+                        continue
 
                     should_on = False
                     reason = "off: insufficient surplus"
@@ -351,7 +538,8 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         should_on = False
                         reason = "off: force_off"
                     else:
-                        # Hysteresis: require more surplus to turn ON than to stay ON.
+                        # Auto mode with hysteresis.
+                        # Use a lower threshold to stay ON, higher to turn ON.
                         threshold = (
                             expected * (1.0 - SURPLUS_HYSTERESIS_FACTOR)
                             if currently_on
@@ -361,6 +549,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             should_on = True
                             reason = f"on: surplus {remaining_surplus:.1f}W >= {threshold:.1f}W"
                         elif runtime.on_until_ts > now:
+                            # Min-runtime lock: keep on even without surplus.
                             should_on = True
                             reason = f"on: holding min runtime ({(runtime.on_until_ts - now):.0f}s left)"
                         else:
@@ -370,6 +559,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
                     if should_on:
                         await self._set_switch(switch_entity, True)
+                        # Extend the minimum-runtime lock if not already held longer.
                         runtime.on_until_ts = max(
                             runtime.on_until_ts, now + min_run_minutes * 60
                         )

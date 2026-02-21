@@ -1,5 +1,20 @@
+"""
+Constants for the Power Manager integration.
+
+Layer: BACKEND
+Shared across coordinator, entity platforms, config flow, and the WS API.
+
+Modes
+-----
+MODE_AUTO        Surplus-controlled (default).
+MODE_FORCE_ON    Always on regardless of surplus.
+MODE_FORCE_OFF   Always off regardless of surplus.
+MODE_DEACTIVATED Excluded from surplus budgeting; switch not touched.
+"""
+from __future__ import annotations
+
 DOMAIN = "power_manager"
-PLATFORMS = ["sensor", "switch"]
+PLATFORMS = ["sensor", "switch", "select"]
 
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_BASE_LOAD_ENTITY = "base_load_entity"

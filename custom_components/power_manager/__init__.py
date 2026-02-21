@@ -1,3 +1,45 @@
+"""
+Integration entry point for the Power Manager custom component.
+
+Layer: BACKEND
+
+Responsibilities
+----------------
+1. async_setup        — Register all HA services (action calls from Developer
+                        Tools or automations), register the WebSocket API
+                        handlers, and mount the sidebar panel static file.
+
+2. async_setup_entry  — Instantiate and initialise PowerManagerCoordinator,
+                        forward setup to each entity platform (sensor, switch,
+                        select).
+
+3. async_unload_entry — Save coordinator state to storage before teardown,
+                        then unload entity platforms.
+
+4. async_migrate_entry — Handle config-entry version migrations.
+
+WebSocket API (power_manager/*)
+--------------------------------
+All commands follow the pattern:
+    frontend sends  → { type: "power_manager/<cmd>", ...fields }
+    backend replies → { id, type: "result", success: true, result: <config_payload> }
+
+Registered commands:
+    get_config          Return full config snapshot.
+    set_base            Update base-load sensor entity.
+    add_producer        Add a producer.
+    update_producer     Update producer entity / rename producer.
+    remove_producer     Remove a producer.
+    add_consumer        Add a consumer.
+    update_consumer     Update consumer fields (all optional except name).
+    remove_consumer     Remove a consumer.
+
+Panel
+-----
+The frontend JS file (panel/power-manager-panel.js) is served as a static
+file at /power_manager_static/power-manager-panel.js and registered as a
+custom sidebar panel under the URL path "power-manager".
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -13,6 +55,8 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN, INTEGRATION_VERSION, PLATFORMS, VALID_MODES
 from .coordinator import PowerManagerCoordinator
+
+# ── service name constants ─────────────────────────────────────────────────
 
 SERVICE_SET_RUNNING = "set_running"
 SERVICE_SET_CONSUMER_MODE = "set_consumer_mode"
@@ -31,16 +75,29 @@ SERVICE_UPDATE_BASE_LOAD_ENTITY = "update_base_load_entity"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
+# ── panel constants ────────────────────────────────────────────────────────
+
+# URL path under which the panel is reachable in the HA frontend.
 PANEL_URL_PATH = "power-manager"
+# Static URL prefix used to serve frontend assets.
 PANEL_STATIC_URL = "/power_manager_static"
+# Filename of the Web Component (relative to the panel/ subdirectory).
 PANEL_JS_NAME = "power-manager-panel.js"
 
 
+# ── private helpers ────────────────────────────────────────────────────────
+
 def _coordinator(hass: HomeAssistant) -> PowerManagerCoordinator | None:
+    """Return the active coordinator, or None if not yet loaded."""
     return hass.data.get(DOMAIN, {}).get("coordinator")
 
 
 def _config_payload(coordinator: PowerManagerCoordinator) -> dict[str, Any]:
+    """Build the JSON payload returned to the frontend after every WS command.
+
+    Contains a snapshot of the coordinator's current data plus the static
+    integration version string.
+    """
     data = coordinator.data or {}
     return {
         "integration_version": INTEGRATION_VERSION,
@@ -59,7 +116,15 @@ def _config_payload(coordinator: PowerManagerCoordinator) -> dict[str, Any]:
     }
 
 
+# ── panel registration ─────────────────────────────────────────────────────
+
 async def _register_panel(hass: HomeAssistant) -> None:
+    """Register the Power Manager sidebar panel (idempotent).
+
+    Serves panel/power-manager-panel.js as a static file and registers it
+    as a custom panel in the HA sidebar.  The guard flag prevents duplicate
+    registration on config-entry reload.
+    """
     if hass.data[DOMAIN].get("panel_registered"):
         return
 
@@ -90,7 +155,15 @@ async def _register_panel(hass: HomeAssistant) -> None:
     hass.data[DOMAIN]["panel_registered"] = True
 
 
+# ── WebSocket API ──────────────────────────────────────────────────────────
+
 async def _register_ws(hass: HomeAssistant) -> None:
+    """Register all WebSocket command handlers (idempotent).
+
+    Handlers are defined as inner functions so they capture the outer hass
+    reference via closure while still being passed to
+    websocket_api.async_register_command as named callables.
+    """
     if hass.data[DOMAIN].get("ws_registered"):
         return
 
@@ -101,6 +174,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
         connection: websocket_api.ActiveConnection,
         msg: dict[str, Any],
     ) -> None:
+        """Return a full config snapshot, triggering a coordinator refresh first."""
         coordinator = _coordinator(hass)
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
@@ -120,6 +194,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
         connection: websocket_api.ActiveConnection,
         msg: dict[str, Any],
     ) -> None:
+        """Update the base-load sensor entity ID."""
         coordinator = _coordinator(hass)
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
@@ -140,6 +215,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
         connection: websocket_api.ActiveConnection,
         msg: dict[str, Any],
     ) -> None:
+        """Add a new producer power sensor."""
         coordinator = _coordinator(hass)
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
@@ -161,6 +237,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
         connection: websocket_api.ActiveConnection,
         msg: dict[str, Any],
     ) -> None:
+        """Update a producer's entity ID and optionally rename it."""
         coordinator = _coordinator(hass)
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
@@ -180,6 +257,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
         connection: websocket_api.ActiveConnection,
         msg: dict[str, Any],
     ) -> None:
+        """Remove a producer by name."""
         coordinator = _coordinator(hass)
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
@@ -204,6 +282,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
         connection: websocket_api.ActiveConnection,
         msg: dict[str, Any],
     ) -> None:
+        """Add a new consumer load."""
         coordinator = _coordinator(hass)
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
@@ -237,6 +316,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
         connection: websocket_api.ActiveConnection,
         msg: dict[str, Any],
     ) -> None:
+        """Update one or more fields of an existing consumer."""
         coordinator = _coordinator(hass)
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
@@ -265,6 +345,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
         connection: websocket_api.ActiveConnection,
         msg: dict[str, Any],
     ) -> None:
+        """Remove a consumer by name."""
         coordinator = _coordinator(hass)
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
@@ -284,32 +365,46 @@ async def _register_ws(hass: HomeAssistant) -> None:
     hass.data[DOMAIN]["ws_registered"] = True
 
 
+# ── HA integration lifecycle ───────────────────────────────────────────────
+
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Global setup: register HA services, WebSocket API, and the sidebar panel.
+
+    Called once by HA when the integration is first loaded.  Config-entry
+    specific setup (coordinator, entity platforms) happens in async_setup_entry.
+    """
     hass.data.setdefault(DOMAIN, {})
 
-    async def _set_running(call: ServiceCall):
+    # ── service handlers ───────────────────────────────────────────────────
+
+    async def _set_running(call: ServiceCall) -> None:
+        """Start or stop the control loop."""
         coordinator = _coordinator(hass)
         if coordinator:
             coordinator.running = call.data["running"]
             await coordinator.async_save_state()
             await coordinator.async_request_refresh()
 
-    async def _set_consumer_mode(call: ServiceCall):
+    async def _set_consumer_mode(call: ServiceCall) -> None:
+        """Set a consumer's operating mode."""
         coordinator = _coordinator(hass)
         if coordinator:
             await coordinator.async_set_consumer_mode(call.data["consumer"], call.data["mode"])
 
-    async def _add_producer(call: ServiceCall):
+    async def _add_producer(call: ServiceCall) -> None:
+        """Add a producer via HA service call."""
         coordinator = _coordinator(hass)
         if coordinator:
             await coordinator.async_add_producer(call.data["name"], call.data["entity_id"])
 
-    async def _remove_producer(call: ServiceCall):
+    async def _remove_producer(call: ServiceCall) -> None:
+        """Remove a producer via HA service call."""
         coordinator = _coordinator(hass)
         if coordinator:
             await coordinator.async_remove_producer(call.data["name"])
 
-    async def _update_producer(call: ServiceCall):
+    async def _update_producer(call: ServiceCall) -> None:
+        """Update a producer via HA service call."""
         coordinator = _coordinator(hass)
         if coordinator:
             await coordinator.async_update_producer(
@@ -317,7 +412,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 entity_id=call.data["entity_id"],
             )
 
-    async def _add_consumer(call: ServiceCall):
+    async def _add_consumer(call: ServiceCall) -> None:
+        """Add a consumer via HA service call."""
         coordinator = _coordinator(hass)
         if coordinator:
             await coordinator.async_add_consumer(
@@ -329,7 +425,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 min_run_minutes=call.data["min_run_minutes"],
             )
 
-    async def _update_consumer(call: ServiceCall):
+    async def _update_consumer(call: ServiceCall) -> None:
+        """Update consumer fields via HA service call."""
         coordinator = _coordinator(hass)
         if coordinator:
             await coordinator.async_update_consumer(
@@ -342,16 +439,19 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 mode=call.data.get("mode"),
             )
 
-    async def _remove_consumer(call: ServiceCall):
+    async def _remove_consumer(call: ServiceCall) -> None:
+        """Remove a consumer via HA service call."""
         coordinator = _coordinator(hass)
         if coordinator:
             await coordinator.async_remove_consumer(call.data["name"])
 
-    async def _get_consumers(call: ServiceCall):
+    async def _get_consumers(call: ServiceCall) -> None:
+        """Display configured consumers in a persistent HA notification."""
         coordinator = _coordinator(hass)
         if coordinator:
             consumers = coordinator.data.get("consumers", []) if coordinator.data else []
-            text = "\n".join(
+            text = "
+".join(
                 [
                     f"- {c.get('name')} | switch={c.get('switch_entity')} | power={c.get('power_entity')} | prio={c.get('priority')} | expected={c.get('expected_power')}W | min={c.get('min_run_minutes')}min"
                     for c in consumers
@@ -359,7 +459,6 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             )
             if not text:
                 text = "No consumers configured."
-
             await hass.services.async_call(
                 "persistent_notification",
                 "create",
@@ -371,14 +470,15 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 blocking=True,
             )
 
-    async def _get_producers(call: ServiceCall):
+    async def _get_producers(call: ServiceCall) -> None:
+        """Display configured producers in a persistent HA notification."""
         coordinator = _coordinator(hass)
         if coordinator:
             producers = coordinator.data.get("producers", []) if coordinator.data else []
-            text = "\n".join([f"- {p.get('name')} | entity={p.get('entity_id')}" for p in producers])
+            text = "
+".join([f"- {p.get('name')} | entity={p.get('entity_id')}" for p in producers])
             if not text:
                 text = "No producers configured."
-
             await hass.services.async_call(
                 "persistent_notification",
                 "create",
@@ -390,33 +490,44 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 blocking=True,
             )
 
-    async def _get_config(call: ServiceCall):
+    async def _get_config(call: ServiceCall) -> None:
+        """Display the full configuration in a persistent HA notification."""
         coordinator = _coordinator(hass)
         if coordinator:
             data = _config_payload(coordinator)
-            producer_lines = "\n".join(
+            producer_lines = "
+".join(
                 [
                     f"  - {p.get('name')} | entity={p.get('entity_id')} | current_w={data.get('producer_states', {}).get(p.get('name'), {}).get('power', 'unknown')}"
                     for p in data.get("producers", [])
                 ]
             ) or "  - none"
-            consumer_lines = "\n".join(
+            consumer_lines = "
+".join(
                 [
                     f"  - {c.get('name')} | switch={c.get('switch_entity')} | power={c.get('power_entity')} | prio={c.get('priority')} | expected={c.get('expected_power')}W | min={c.get('min_run_minutes')}min"
                     for c in data.get("consumers", [])
                 ]
             ) or "  - none"
-
             text = (
-                f"integration_version: {data.get('integration_version')}\n"
-                f"running: {data.get('running')}\n"
-                f"base_load_entity: {data.get('base_load_entity')}\n"
-                f"base_load_current_w: {data.get('base_load_current_w')}\n"
-                f"scan_interval_seconds: {data.get('scan_interval_seconds')}\n\n"
-                f"producers:\n{producer_lines}\n\n"
-                f"consumers:\n{consumer_lines}"
-            )
+                f"integration_version: {data.get('integration_version')}
+"
+                f"running: {data.get('running')}
+"
+                f"base_load_entity: {data.get('base_load_entity')}
+"
+                f"base_load_current_w: {data.get('base_load_current_w')}
+"
+                f"scan_interval_seconds: {data.get('scan_interval_seconds')}
 
+"
+                f"producers:
+{producer_lines}
+
+"
+                f"consumers:
+{consumer_lines}"
+            )
             await hass.services.async_call(
                 "persistent_notification",
                 "create",
@@ -428,7 +539,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 blocking=True,
             )
 
-    async def _get_version(call: ServiceCall):
+    async def _get_version(call: ServiceCall) -> None:
+        """Display the loaded integration version in a persistent HA notification."""
         await hass.services.async_call(
             "persistent_notification",
             "create",
@@ -440,7 +552,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             blocking=True,
         )
 
-    async def _get_base_load_entity(call: ServiceCall):
+    async def _get_base_load_entity(call: ServiceCall) -> None:
+        """Display the current base-load sensor entity in a persistent notification."""
         coordinator = _coordinator(hass)
         if coordinator:
             data = coordinator.data or {}
@@ -456,10 +569,13 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 blocking=True,
             )
 
-    async def _update_base_load_entity(call: ServiceCall):
+    async def _update_base_load_entity(call: ServiceCall) -> None:
+        """Update the base-load sensor entity via HA service call."""
         coordinator = _coordinator(hass)
         if coordinator:
             await coordinator.async_update_base_load_entity(call.data["entity_id"])
+
+    # ── service registration ───────────────────────────────────────────────
 
     hass.services.async_register(
         DOMAIN,
@@ -557,6 +673,11 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up a Power Manager config entry.
+
+    Creates and initialises the coordinator, performs the first data refresh,
+    then forwards setup to each entity platform defined in PLATFORMS.
+    """
     coordinator = PowerManagerCoordinator(hass, entry)
     await coordinator.async_initialize()
     await coordinator.async_config_entry_first_refresh()
@@ -570,6 +691,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a Power Manager config entry.
+
+    Saves coordinator state to storage before teardown so no configuration
+    is lost during an integration reload or HA shutdown.
+    """
     coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
     if coordinator:
         await coordinator.async_save_state()
@@ -580,6 +706,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate a config entry to the current schema version.
+
+    Version history:
+        1 → 2  No data migration needed; version bump only.
+    """
     if entry.version > 2:
         return False
 
