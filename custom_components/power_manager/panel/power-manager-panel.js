@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.3';
+const PANEL_VERSION = '0.2.4';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -221,6 +221,14 @@ class PowerManagerPanel extends HTMLElement {
         .dot-actual-on  { background: #1565c0; }
         .dot-actual-off { background: #bdbdbd; }
         .dot-actual-unknown { background: transparent; border: 1px solid #bdbdbd; }
+        /* Running toggle */
+        .toggle-wrap { display: flex; align-items: center; gap: 6px; }
+        .toggle { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+        .toggle input { opacity: 0; width: 0; height: 0; }
+        .toggle-track { position: absolute; cursor: pointer; inset: 0; background: #ccc; border-radius: 20px; transition: background .2s; }
+        .toggle-track:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: transform .2s; }
+        .toggle input:checked + .toggle-track { background: #2e7d32; }
+        .toggle input:checked + .toggle-track:before { transform: translateX(16px); }
         /* Legend */
         .legend { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 6px 0 10px; font-size: 12px; }
         .legend-item { display: flex; align-items: center; gap: 5px; }
@@ -410,11 +418,21 @@ class PowerManagerPanel extends HTMLElement {
         <div class="stat"><div class="stat-label">Surplus</div><div class="stat-value" style="color:${surplusColor}">${fmt(surplus)}</div></div>
         <div class="stat"><div class="stat-label">Remaining</div><div class="stat-value">${fmt(remaining)}</div></div>
         <div class="stat"><div class="stat-label">Scan interval</div><div class="stat-value">${data.scan_interval_seconds}s</div></div>
-        <div class="stat"><div class="stat-label">Status</div><div class="stat-value">${data.running ? '🟢 Running' : '🔴 Stopped'}</div></div>
+        <div class="stat"><div class="stat-label">Status</div><div class="stat-value">
+          <div class="toggle-wrap">
+            <label class="toggle"><input type="checkbox" id="runningToggle" ${data.running ? 'checked' : ''}><span class="toggle-track"></span></label>
+            <span>${data.running ? 'Running' : 'Stopped'}</span>
+          </div>
+        </div></div>
         <div class="stat"><div class="stat-label">Backend</div><div class="stat-value" style="font-size:.9em">${data.integration_version}</div></div>
         <div class="stat"><div class="stat-label">Panel</div><div class="stat-value" style="font-size:.9em">${PANEL_VERSION}</div></div>
       </div>
     `;
+
+    this.querySelector('#runningToggle').onchange = async (e) => {
+      await this._hass.callService('power_manager', 'set_running', { running: e.target.checked });
+      await this._load();
+    };
   }
 
   // ── base load card ─────────────────────────────────────────────────────────
