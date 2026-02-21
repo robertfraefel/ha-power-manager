@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.4';
+const PANEL_VERSION = '0.2.5';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -288,6 +288,15 @@ class PowerManagerPanel extends HTMLElement {
             <span class="legend-sep">·</span>
             <span class="legend-item"><span class="status-dot dot-actual dot-actual-on"></span> Switch ON</span>
             <span class="legend-item"><span class="status-dot dot-actual dot-actual-off"></span> Switch OFF</span>
+          </div>
+          <div class="legend" style="margin-top:2px;font-size:11px;opacity:0.7">
+            <span><b>P#</b> = priority (1 = first to get surplus)</span>
+            <span class="legend-sep">·</span>
+            <span><b>surplus ok</b> = enough solar to switch ON</span>
+            <span class="legend-sep">·</span>
+            <span><b>no surplus</b> = not enough solar</span>
+            <span class="legend-sep">·</span>
+            <span><b>min-run hold</b> = within minimum runtime · <b>⏱</b> = time remaining</span>
           </div>
           <div class="add-row">
             <input id="newConName" placeholder="Name" />
