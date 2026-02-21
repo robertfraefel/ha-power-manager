@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.2';
+const PANEL_VERSION = '0.2.3';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -222,8 +222,8 @@ class PowerManagerPanel extends HTMLElement {
         .dot-actual-off { background: #bdbdbd; }
         .dot-actual-unknown { background: transparent; border: 1px solid #bdbdbd; }
         /* Legend */
-        .legend { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 8px; font-size: 11px; opacity: 0.7; }
-        .legend-item { display: flex; align-items: center; gap: 4px; }
+        .legend { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 6px 0 10px; font-size: 12px; }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
         .legend-sep { opacity: 0.35; }
       </style>
       <div class="wrap">
