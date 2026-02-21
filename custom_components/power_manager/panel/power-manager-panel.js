@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.7';
+const PANEL_VERSION = '0.2.8';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -472,7 +472,7 @@ class PowerManagerPanel extends HTMLElement {
     const tbody = this.querySelector('#baseRows');
     tbody.innerHTML = `
       <tr>
-        <td><input id="baseName" value="${baseName}" placeholder="Base load" style="width:100px" /></td>
+        <td><input id="baseName" value="${baseName}" placeholder="Base load" /></td>
         <td><input id="baseEntity" list="sensorEntitiesList" value="${entityId}" placeholder="sensor.house_total_power" /></td>
         <td data-live-watt="${entityId}">${displayW}</td>
         <td style="white-space:nowrap">
@@ -603,6 +603,17 @@ class PowerManagerPanel extends HTMLElement {
       });
 
     const consRows = this.querySelector('#consRows');
+
+    // Capture any unsaved user edits before clearing, keyed by original consumer name.
+    // This prevents the periodic _load() timer from clobbering in-flight input changes.
+    const savedEdits = {};
+    consRows.querySelectorAll('tr[data-consumer]').forEach((tr) => {
+      const key = tr.dataset.consumer;
+      const edits = {};
+      tr.querySelectorAll('[data-k]').forEach((el) => { edits[el.dataset.k] = el.value; });
+      savedEdits[key] = edits;
+    });
+
     consRows.innerHTML = '';
     (data.consumers || []).forEach((c) => {
       const stateData = (data.consumer_states || {})[c.name] || {};
@@ -631,7 +642,17 @@ class PowerManagerPanel extends HTMLElement {
       // Current runtime mode (from coordinator) — used to pre-select dropdown
       const currentMode = stateData.mode || c.mode || 'auto';
 
+      // Decision column text
+      const decisionHtml = (() => {
+        if (!data.running) return '<span style="opacity:0.6;font-style:italic">Power Manager stopped</span>';
+        const { priority, reason, timeLeft } = conditionByConsumer[c.name] || { priority: c.priority ?? '?', reason: 'n/a', timeLeft: null };
+        const prioHtml = `<span style="display:inline-block;background:#e0e0e0;color:#333;border-radius:3px;padding:1px 5px;font-weight:700;font-size:10px;margin-right:5px;letter-spacing:0.03em">P${priority}</span>`;
+        const timeHtml = timeLeft ? `<br><span style="opacity:0.65">⏱ ${timeLeft} left</span>` : '';
+        return `${prioHtml}${reason}${timeHtml}`;
+      })();
+
       const tr = document.createElement('tr');
+      tr.dataset.consumer = c.name;
       tr.innerHTML = `
         <td style="text-align:center">
           <span class="status-dot dot-decision ${coordDotClass}" title="${coordTitle}"></span>
@@ -654,22 +675,20 @@ class PowerManagerPanel extends HTMLElement {
             <option value="deactivated">deactivated</option>
           </select>
         </td>
-        <td style="font-size:11px;max-width:220px;white-space:normal;line-height:1.5">
-          ${(() => {
-            const { priority, reason, timeLeft } = conditionByConsumer[c.name] || { priority: c.priority ?? '?', reason: 'n/a', timeLeft: null };
-            const prioHtml = `<span style="display:inline-block;background:#e0e0e0;color:#333;border-radius:3px;padding:1px 5px;font-weight:700;font-size:10px;margin-right:5px;letter-spacing:0.03em">P${priority}</span>`;
-            const timeHtml = timeLeft ? `<br><span style="opacity:0.65">⏱ ${timeLeft} left</span>` : '';
-            return `${prioHtml}${reason}${timeHtml}`;
-          })()}
-        </td>
+        <td style="font-size:11px;max-width:220px;white-space:normal;line-height:1.5">${decisionHtml}</td>
         <td style="white-space:nowrap">
           <button data-a="save">Save</button>
           <button data-a="del" class="btn-del">Del</button>
         </td>
       `;
 
-      // Set dropdown to current runtime mode
+      // Set dropdown to current runtime mode, then restore any unsaved user edit
       tr.querySelector('[data-k="mode"]').value = currentMode;
+      if (savedEdits[c.name]) {
+        tr.querySelectorAll('[data-k]').forEach((el) => {
+          if (el.dataset.k in savedEdits[c.name]) el.value = savedEdits[c.name][el.dataset.k];
+        });
+      }
 
       tr.querySelector('[data-a="save"]').onclick = async () => {
         const newName = tr.querySelector('[data-k="name"]').value.trim();
