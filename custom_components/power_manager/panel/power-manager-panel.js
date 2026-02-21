@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.1';
+const PANEL_VERSION = '0.2.2';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -621,7 +621,7 @@ class PowerManagerPanel extends HTMLElement {
         <td style="font-size:11px;max-width:220px;white-space:normal;line-height:1.5">
           ${(() => {
             const { priority, reason, timeLeft } = conditionByConsumer[c.name] || { priority: c.priority ?? '?', reason: 'n/a', timeLeft: null };
-            const prioHtml = `<span style="display:inline-block;background:var(--secondary-background-color);border-radius:3px;padding:0 4px;font-weight:600;margin-right:4px">P${priority}</span>`;
+            const prioHtml = `<span style="display:inline-block;background:#e0e0e0;color:#333;border-radius:3px;padding:1px 5px;font-weight:700;font-size:10px;margin-right:5px;letter-spacing:0.03em">P${priority}</span>`;
             const timeHtml = timeLeft ? `<br><span style="opacity:0.65">⏱ ${timeLeft} left</span>` : '';
             return `${prioHtml}${reason}${timeHtml}`;
           })()}
