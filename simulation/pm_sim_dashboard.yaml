@@ -73,7 +73,7 @@ views:
             entities:
               - entity: input_boolean.sim_switch_boiler
                 name: Switch (relay)
-              - entity: input_number.sim_power_boiler
+              - entity: input_number.sim_boiler_power
                 name: Power draw (W)
 
           - type: entities
@@ -81,7 +81,7 @@ views:
             entities:
               - entity: input_boolean.sim_switch_washer
                 name: Switch (relay)
-              - entity: input_number.sim_power_washer
+              - entity: input_number.sim_washer_power
                 name: Power draw (W)
 
           - type: entities
@@ -89,5 +89,5 @@ views:
             entities:
               - entity: input_boolean.sim_switch_ev
                 name: Switch (relay)
-              - entity: input_number.sim_power_ev
+              - entity: input_number.sim_ev_power
                 name: Power draw (W)

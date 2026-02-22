@@ -26,9 +26,9 @@
 #      Entity: input_number.sim_base_load
 #
 #    Consumers (example):
-#      Name: Boiler    Switch: input_boolean.sim_switch_boiler    Power: input_number.sim_power_boiler    Expected W: 2000   Min run: 10
-#      Name: Washer    Switch: input_boolean.sim_switch_washer    Power: input_number.sim_power_washer    Expected W: 800    Min run: 20
-#      Name: EV        Switch: input_boolean.sim_switch_ev        Power: input_number.sim_power_ev        Expected W: 3500   Min run: 30
+#      Name: Boiler    Switch: input_boolean.sim_switch_boiler    Power: input_number.sim_boiler_power    Expected W: 2000   Min run: 10
+#      Name: Washer    Switch: input_boolean.sim_switch_washer    Power: input_number.sim_washer_power    Expected W: 800    Min run: 20
+#      Name: EV        Switch: input_boolean.sim_switch_ev        Power: input_number.sim_ev_power        Expected W: 3500   Min run: 30
 #
 # 5. Use HA's Developer Tools → States, or add an input_number / input_boolean
 #    tile to a dashboard, to control values in real time.
@@ -75,7 +75,7 @@ input_number:
     icon: mdi:home-lightning-bolt
 
   # ── Consumer power sensors (simulate actual draw when switch is ON) ─────────
-  sim_power_boiler:
+  sim_boiler_power:
     name: "Sim · Boiler Power"
     min: 0
     max: 3000
@@ -84,7 +84,7 @@ input_number:
     mode: slider
     icon: mdi:water-boiler
 
-  sim_power_washer:
+  sim_washer_power:
     name: "Sim · Washer Power"
     min: 0
     max: 2500
@@ -93,7 +93,7 @@ input_number:
     mode: slider
     icon: mdi:washing-machine
 
-  sim_power_ev:
+  sim_ev_power:
     name: "Sim · EV Charger Power"
     min: 0
     max: 11000
