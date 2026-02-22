@@ -63,7 +63,9 @@ views:
         title: Base Load
         entities:
           - entity: input_number.sim_base_load
-            name: Power (W)
+            name: Background (W)
+          - entity: sensor.sim_effective_base_load
+            name: Effective total (W)
 
       # ── Consumers ─────────────────────────────────────────────────────────
       - type: horizontal-stack

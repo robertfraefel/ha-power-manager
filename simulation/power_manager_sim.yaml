@@ -23,7 +23,8 @@
 #      Name: Solar Carport     Entity: input_number.sim_solar_carport
 #
 #    Base load:
-#      Entity: input_number.sim_base_load
+#      Entity: sensor.sim_effective_base_load   ← use this, NOT input_number.sim_base_load
+#      (computed sensor = background slider + active consumer draws)
 #
 #    Consumers (example):
 #      Name: Boiler    Switch: input_boolean.sim_boiler_switch    Power: input_number.sim_boiler_power      Expected W: 2000   Min run: 10
@@ -101,6 +102,28 @@ input_number:
     unit_of_measurement: W
     mode: slider
     icon: mdi:ev-station
+
+template:
+
+  # ── Effective base load (background + active consumer draws) ────────────────
+  # Use sensor.sim_effective_base_load as the base_load_entity in Power Manager.
+  # It automatically adds each consumer's configured power draw to the background
+  # slider whenever the coordinator (or you manually) turns a switch on.
+  - sensor:
+      - name: "Sim Effective Base Load"
+        unique_id: sim_effective_base_load
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set bl     = states('input_number.sim_base_load')       | float(0) %}
+          {% set boiler = states('input_number.sim_boiler_power')    | float(0)
+                          if is_state('input_boolean.sim_boiler_switch',      'on') else 0 %}
+          {% set washer = states('input_number.sim_washer_power')    | float(0)
+                          if is_state('input_boolean.sim_washer_switch',      'on') else 0 %}
+          {% set ev     = states('input_number.sim_ev_charger_power')| float(0)
+                          if is_state('input_boolean.sim_ev_charger_switch',  'on') else 0 %}
+          {{ bl + boiler + washer + ev }}
 
 input_boolean:
 
