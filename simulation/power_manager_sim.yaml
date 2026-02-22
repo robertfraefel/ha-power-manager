@@ -26,9 +26,9 @@
 #      Entity: input_number.sim_base_load
 #
 #    Consumers (example):
-#      Name: Boiler    Switch: input_boolean.sim_switch_boiler    Power: input_number.sim_boiler_power    Expected W: 2000   Min run: 10
-#      Name: Washer    Switch: input_boolean.sim_switch_washer    Power: input_number.sim_washer_power    Expected W: 800    Min run: 20
-#      Name: EV        Switch: input_boolean.sim_switch_ev        Power: input_number.sim_ev_power        Expected W: 3500   Min run: 30
+#      Name: Boiler    Switch: input_boolean.sim_boiler_switch    Power: input_number.sim_boiler_power      Expected W: 2000   Min run: 10
+#      Name: Washer    Switch: input_boolean.sim_washer_switch    Power: input_number.sim_washer_power      Expected W: 800    Min run: 20
+#      Name: EV        Switch: input_boolean.sim_ev_charger_switch Power: input_number.sim_ev_charger_power Expected W: 3500   Min run: 30
 #
 # 5. Use HA's Developer Tools → States, or add an input_number / input_boolean
 #    tile to a dashboard, to control values in real time.
@@ -93,7 +93,7 @@ input_number:
     mode: slider
     icon: mdi:washing-machine
 
-  sim_ev_power:
+  sim_ev_charger_power:
     name: "Sim · EV Charger Power"
     min: 0
     max: 11000
@@ -105,14 +105,14 @@ input_number:
 input_boolean:
 
   # ── Consumer switches (coordinator calls turn_on / turn_off on these) ───────
-  sim_switch_boiler:
+  sim_boiler_switch:
     name: "Sim · Boiler Switch"
     icon: mdi:water-boiler
 
-  sim_switch_washer:
+  sim_washer_switch:
     name: "Sim · Washer Switch"
     icon: mdi:washing-machine
 
-  sim_switch_ev:
+  sim_ev_charger_switch:
     name: "Sim · EV Charger Switch"
     icon: mdi:ev-station
