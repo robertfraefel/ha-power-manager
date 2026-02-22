@@ -1,0 +1,93 @@
+# Power Manager — Simulation Dashboard
+#
+# HOW TO ADD THIS DASHBOARD TO HOME ASSISTANT
+# ────────────────────────────────────────────
+# Option A (easiest — Raw Config Editor):
+#   1. HA sidebar → Edit Dashboard (three dots, top right) → Raw configuration editor
+#   2. Paste the content of this file (starting from "title:" below)
+#   3. Save
+#
+# Option B (YAML-mode dashboard):
+#   1. Copy this file to /config/pm_sim_dashboard.yaml
+#   2. Add to configuration.yaml:
+#         lovelace:
+#           dashboards:
+#             power-manager-sim:
+#               mode: yaml
+#               title: PM Simulation
+#               icon: mdi:solar-power
+#               show_in_sidebar: true
+#               filename: pm_sim_dashboard.yaml
+#   3. Restart HA
+# ────────────────────────────────────────────
+
+title: PM Simulation
+views:
+  - title: Simulation
+    icon: mdi:solar-power
+    cards:
+
+      # ── Live Power Manager readings ───────────────────────────────────────
+      - type: glance
+        title: Power Manager — Live
+        show_name: true
+        show_icon: true
+        entities:
+          - entity: sensor.power_manager_total_production
+            name: Production
+            icon: mdi:solar-power
+          - entity: sensor.power_manager_base_load
+            name: Base Load
+            icon: mdi:home-lightning-bolt
+          - entity: sensor.power_manager_power_surplus
+            name: Surplus
+            icon: mdi:lightning-bolt
+
+      # ── Producers ─────────────────────────────────────────────────────────
+      - type: horizontal-stack
+        cards:
+          - type: entities
+            title: Solar Roof
+            entities:
+              - entity: input_number.sim_solar_roof
+                name: Power (W)
+
+          - type: entities
+            title: Solar Carport
+            entities:
+              - entity: input_number.sim_solar_carport
+                name: Power (W)
+
+      # ── Base load ─────────────────────────────────────────────────────────
+      - type: entities
+        title: Base Load
+        entities:
+          - entity: input_number.sim_base_load
+            name: Power (W)
+
+      # ── Consumers ─────────────────────────────────────────────────────────
+      - type: horizontal-stack
+        cards:
+          - type: entities
+            title: Boiler
+            entities:
+              - entity: input_boolean.sim_switch_boiler
+                name: Switch (relay)
+              - entity: input_number.sim_power_boiler
+                name: Power draw (W)
+
+          - type: entities
+            title: Washer
+            entities:
+              - entity: input_boolean.sim_switch_washer
+                name: Switch (relay)
+              - entity: input_number.sim_power_washer
+                name: Power draw (W)
+
+          - type: entities
+            title: EV Charger
+            entities:
+              - entity: input_boolean.sim_switch_ev
+                name: Switch (relay)
+              - entity: input_number.sim_power_ev
+                name: Power draw (W)
