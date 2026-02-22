@@ -1,0 +1,118 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Power Manager — Simulation Package
+#
+# Provides virtual producers, a virtual base load, and virtual consumers
+# (switches + power sensors) so you can test the integration without real
+# hardware.
+#
+# HOW TO INSTALL
+# ──────────────
+# 1. Copy this file to your HA config directory, e.g.:
+#       /config/packages/power_manager_sim.yaml
+#
+# 2. Enable package loading in configuration.yaml (if not already done):
+#       homeassistant:
+#         packages: !include_dir_named packages/
+#
+# 3. Restart Home Assistant.
+#
+# 4. Open the Power Manager panel and configure:
+#
+#    Producers:
+#      Name: Solar Roof        Entity: input_number.sim_solar_roof
+#      Name: Solar Carport     Entity: input_number.sim_solar_carport
+#
+#    Base load:
+#      Entity: input_number.sim_base_load
+#
+#    Consumers (example):
+#      Name: Boiler    Switch: input_boolean.sim_switch_boiler    Power: input_number.sim_power_boiler    Expected W: 2000   Min run: 10
+#      Name: Washer    Switch: input_boolean.sim_switch_washer    Power: input_number.sim_power_washer    Expected W: 800    Min run: 20
+#      Name: EV        Switch: input_boolean.sim_switch_ev        Power: input_number.sim_power_ev        Expected W: 3500   Min run: 30
+#
+# 5. Use HA's Developer Tools → States, or add an input_number / input_boolean
+#    tile to a dashboard, to control values in real time.
+#
+# TYPICAL TEST SCENARIOS
+# ──────────────────────
+# • Surplus grows:    raise sim_solar_roof slider → watch consumers turn ON in priority order
+# • Surplus shrinks:  lower sim_solar_roof → watch consumers turn OFF
+# • Min-run hold:     lower surplus below threshold immediately after a consumer turns ON
+#                     → consumer stays ON for min_run_minutes, decision column shows ⏱
+# • Force OFF:        set consumer mode to force_off via panel → switch goes OFF
+# • Force ON:         set mode to force_on → switch goes ON regardless of surplus
+# ──────────────────────────────────────────────────────────────────────────────
+
+input_number:
+
+  # ── Producers ──────────────────────────────────────────────────────────────
+  sim_solar_roof:
+    name: "Sim · Solar Roof"
+    min: 0
+    max: 8000
+    step: 50
+    unit_of_measurement: W
+    mode: slider
+    icon: mdi:solar-panel
+
+  sim_solar_carport:
+    name: "Sim · Solar Carport"
+    min: 0
+    max: 4000
+    step: 50
+    unit_of_measurement: W
+    mode: slider
+    icon: mdi:solar-panel-large
+
+  # ── Base load ───────────────────────────────────────────────────────────────
+  sim_base_load:
+    name: "Sim · Base Load"
+    min: 0
+    max: 3000
+    step: 25
+    unit_of_measurement: W
+    mode: slider
+    icon: mdi:home-lightning-bolt
+
+  # ── Consumer power sensors (simulate actual draw when switch is ON) ─────────
+  sim_power_boiler:
+    name: "Sim · Boiler Power"
+    min: 0
+    max: 3000
+    step: 50
+    unit_of_measurement: W
+    mode: slider
+    icon: mdi:water-boiler
+
+  sim_power_washer:
+    name: "Sim · Washer Power"
+    min: 0
+    max: 2500
+    step: 50
+    unit_of_measurement: W
+    mode: slider
+    icon: mdi:washing-machine
+
+  sim_power_ev:
+    name: "Sim · EV Charger Power"
+    min: 0
+    max: 11000
+    step: 100
+    unit_of_measurement: W
+    mode: slider
+    icon: mdi:ev-station
+
+input_boolean:
+
+  # ── Consumer switches (coordinator calls turn_on / turn_off on these) ───────
+  sim_switch_boiler:
+    name: "Sim · Boiler Switch"
+    icon: mdi:water-boiler
+
+  sim_switch_washer:
+    name: "Sim · Washer Switch"
+    icon: mdi:washing-machine
+
+  sim_switch_ev:
+    name: "Sim · EV Charger Switch"
+    icon: mdi:ev-station
