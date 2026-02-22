@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.11';
+const PANEL_VERSION = '0.2.12';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -339,6 +339,7 @@ class PowerManagerPanel extends HTMLElement {
         await this._load();
       } catch (err) {
         alert(`Failed to add producer: ${err?.message || err}`);
+        await this._load(); // refresh to show actual server state
       }
     };
 
@@ -360,6 +361,7 @@ class PowerManagerPanel extends HTMLElement {
         await this._load();
       } catch (err) {
         alert(`Failed to add consumer: ${err?.message || err}`);
+        await this._load(); // refresh to show actual server state
       }
     };
   }
