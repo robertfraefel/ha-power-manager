@@ -183,7 +183,12 @@ async def _register_ws(hass: HomeAssistant) -> None:
         if not coordinator:
             connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
             return
-        await coordinator.async_refresh()
+        try:
+            await coordinator.async_refresh()
+        except Exception:
+            # Refresh failed (e.g. entity unavailable). Return config from memory
+            # so the panel is never left with a WS error instead of a result.
+            pass
         connection.send_result(msg["id"], _config_payload(coordinator))
 
     @websocket_api.websocket_command(
