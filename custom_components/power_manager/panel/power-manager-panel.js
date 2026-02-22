@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.12';
+const PANEL_VERSION = '0.2.13';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -339,7 +339,8 @@ class PowerManagerPanel extends HTMLElement {
         await this._load();
       } catch (err) {
         alert(`Failed to add producer: ${err?.message || err}`);
-        await this._load(); // refresh to show actual server state
+        this._loading = false; // clear in case a previous _load() left it stuck
+        await this._load();
       }
     };
 
@@ -361,7 +362,8 @@ class PowerManagerPanel extends HTMLElement {
         await this._load();
       } catch (err) {
         alert(`Failed to add consumer: ${err?.message || err}`);
-        await this._load(); // refresh to show actual server state
+        this._loading = false; // clear in case a previous _load() left it stuck
+        await this._load();
       }
     };
   }
@@ -381,41 +383,45 @@ class PowerManagerPanel extends HTMLElement {
   async _load() {
     if (this._loading) return;
     this._loading = true;
-    let data;
     try {
-      data = await this._ws('power_manager/get_config');
-    } catch (err) {
-      console.error('[PowerManager] get_config failed:', err);
+      let data;
+      try {
+        data = await this._ws('power_manager/get_config');
+      } catch (err) {
+        console.error('[PowerManager] get_config failed:', err);
+        return;
+      }
+      this._data = data;
+
+      // Start auto-refresh timers on first successful load
+      if (!this._pollTimer) {
+        const interval = Math.max(5, Number(data.scan_interval_seconds) || 10) * 1000;
+        this._pollTimer = setInterval(() => this._load(), interval);
+      }
+      if (!this._lightTimer) {
+        // Fast 2 s tick to keep live entity values current even when HA pushes no updates
+        this._lightTimer = setInterval(() => { if (this._data) this._updateLiveValues(); }, 2000);
+      }
+
+      // Refresh entity datalists
+      const [sensorEntities, switchEntities] = await Promise.all([
+        this._entitiesByDomain('sensor'),
+        this._entitiesByDomain('switch'),
+      ]);
+      this.querySelector('#sensorEntitiesList').innerHTML = sensorEntities
+        .map((v) => `<option value="${v}"></option>`).join('');
+      this.querySelector('#switchEntitiesList').innerHTML = switchEntities
+        .map((v) => `<option value="${v}"></option>`).join('');
+
+      this._renderSummary(data);
+      this._renderBaseLoad(data);
+      this._renderProducers(data);
+      this._renderConsumers(data);
+    } finally {
+      // Always clear the guard — even if a render function throws,
+      // the next _load() call must not silently become a no-op.
       this._loading = false;
-      return;
     }
-    this._data = data;
-
-    // Start auto-refresh timers on first successful load
-    if (!this._pollTimer) {
-      const interval = Math.max(5, Number(data.scan_interval_seconds) || 10) * 1000;
-      this._pollTimer = setInterval(() => this._load(), interval);
-    }
-    if (!this._lightTimer) {
-      // Fast 2 s tick to keep live entity values current even when HA pushes no updates
-      this._lightTimer = setInterval(() => { if (this._data) this._updateLiveValues(); }, 2000);
-    }
-
-    // Refresh entity datalists
-    const [sensorEntities, switchEntities] = await Promise.all([
-      this._entitiesByDomain('sensor'),
-      this._entitiesByDomain('switch'),
-    ]);
-    this.querySelector('#sensorEntitiesList').innerHTML = sensorEntities
-      .map((v) => `<option value="${v}"></option>`).join('');
-    this.querySelector('#switchEntitiesList').innerHTML = switchEntities
-      .map((v) => `<option value="${v}"></option>`).join('');
-
-    this._renderSummary(data);
-    this._renderBaseLoad(data);
-    this._renderProducers(data);
-    this._renderConsumers(data);
-    this._loading = false;
   }
 
   // ── summary card ───────────────────────────────────────────────────────────
