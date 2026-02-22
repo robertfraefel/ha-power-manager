@@ -235,6 +235,21 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Public alias for _async_save — called by async_unload_entry."""
         await self._async_save()
 
+    def get_config(self) -> dict[str, Any]:
+        """Return current configuration directly from coordinator memory.
+
+        This is the authoritative source for static config (producers, consumers,
+        base-load entity).  Prefer this over coordinator.data["producers"] etc.,
+        which is a polled snapshot that may be stale or None during startup.
+        """
+        return {
+            "base_load_entity": self._base_load_entity,
+            "base_load_name": self._base_load_name,
+            "producers": self._producers,
+            "consumers": self._consumers,
+            "running": self.running,
+        }
+
     def _sync_runtime(self) -> None:
         """Keep _runtime in sync with _consumers after add/remove operations.
 

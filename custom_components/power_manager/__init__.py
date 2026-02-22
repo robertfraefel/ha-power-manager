@@ -95,24 +95,27 @@ def _coordinator(hass: HomeAssistant) -> PowerManagerCoordinator | None:
 def _config_payload(coordinator: PowerManagerCoordinator) -> dict[str, Any]:
     """Build the JSON payload returned to the frontend after every WS command.
 
-    Contains a snapshot of the coordinator's current data plus the static
-    integration version string.
+    Static config (producers, consumers, base-load) comes from coordinator.get_config()
+    — the authoritative in-memory state — so the panel always sees the correct lists
+    even when coordinator.data is stale or None (e.g. during startup or after a
+    failed poll cycle).  Runtime values (surplus, production) come from coordinator.data.
     """
     data = coordinator.data or {}
+    cfg = coordinator.get_config()
     return {
         "integration_version": INTEGRATION_VERSION,
-        "running": data.get("running", False),
-        "base_load_entity": data.get("base_load_entity", ""),
-        "base_load_name": data.get("base_load_name", "Base load"),
+        "running": cfg["running"],
+        "base_load_entity": cfg["base_load_entity"],
+        "base_load_name": cfg["base_load_name"],
         "base_load_current_w": data.get("base_load", 0),
         "base_load": data.get("base_load", 0),
         "total_production": data.get("total_production", 0),
         "surplus": data.get("surplus", 0),
         "remaining_surplus": data.get("remaining_surplus", 0),
         "scan_interval_seconds": data.get("scan_interval_seconds", 0),
-        "producers": data.get("producers", []),
+        "producers": cfg["producers"],
         "producer_states": data.get("producer_states", {}),
-        "consumers": data.get("consumers", []),
+        "consumers": cfg["consumers"],
         "consumer_states": data.get("consumer_states", {}),
     }
 
