@@ -132,8 +132,10 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
         self.running: bool = True
 
+        # Fixed storage key — not tied to entry_id so config survives
+        # remove-and-re-add of the integration during updates.
         self._store: Store[dict[str, Any]] = Store(
-            hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}"
+            hass, STORAGE_VERSION, DOMAIN
         )
 
         interval = int(merged.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
