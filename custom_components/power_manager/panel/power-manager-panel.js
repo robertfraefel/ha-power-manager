@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.10';
+const PANEL_VERSION = '0.2.11';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -45,6 +45,10 @@ class PowerManagerPanel extends HTMLElement {
    */
   connectedCallback() {
     if (!this._initialized) {
+      // Persistent edit maps: keyed by consumer/producer name, cleared on save.
+      // Tracks in-progress field edits so poll-timer re-renders never clobber them.
+      this._pendingEdits = {};
+      this._pendingProdEdits = {};
       this._renderShell();
       this._bind();
       this._initialized = true;
@@ -525,6 +529,21 @@ class PowerManagerPanel extends HTMLElement {
           <button data-a="del" class="btn-del">Del</button>
         </td>
       `;
+      // Restore any in-progress edits for this producer
+      if (this._pendingProdEdits[p.name]) {
+        Object.entries(this._pendingProdEdits[p.name]).forEach(([k, v]) => {
+          const el = tr.querySelector(`[data-k="${k}"]`);
+          if (el) el.value = v;
+        });
+      }
+      // Track future edits in real-time
+      tr.querySelectorAll('[data-k]').forEach((el) => {
+        el.addEventListener('input', () => {
+          if (!this._pendingProdEdits[p.name]) this._pendingProdEdits[p.name] = {};
+          this._pendingProdEdits[p.name][el.dataset.k] = el.value;
+        });
+      });
+
       tr.querySelector('[data-a="save"]').onclick = async () => {
         const newName = tr.querySelector('[data-k="name"]').value.trim();
         const entity = tr.querySelector('[data-k="entity"]').value.trim();
@@ -532,12 +551,14 @@ class PowerManagerPanel extends HTMLElement {
         if (newName && newName !== p.name) payload.new_name = newName;
         try {
           await this._ws('power_manager/update_producer', payload);
+          delete this._pendingProdEdits[p.name];
           await this._load();
         } catch (err) {
           alert(`Failed to save producer: ${err?.message || err}`);
         }
       };
       tr.querySelector('[data-a="del"]').onclick = async () => {
+        delete this._pendingProdEdits[p.name];
         await this._ws('power_manager/remove_producer', { name: p.name });
         await this._load();
       };
@@ -591,30 +612,26 @@ class PowerManagerPanel extends HTMLElement {
           reason = 'force_on';
         } else if (mode === 'force_off') {
           reason = 'force_off';
-        } else if (remainingSurplus >= expected) {
-          reason = `surplus ok (${remainingSurplus.toFixed(0)}W ≥ ${expected.toFixed(0)}W)`;
-          remainingSurplus -= expected;
-        } else if (secLeft > 0) {
-          reason = 'min-run hold';
         } else {
-          reason = `no surplus (${remainingSurplus.toFixed(0)}W < ${expected.toFixed(0)}W)`;
+          // auto: use the coordinator's is_on decision as ground truth.
+          // If is_on=true but surplus is insufficient, the coordinator kept it on
+          // via the min-run hold — don't override that with a misleading "no surplus".
+          const isOn = Boolean(state.is_on);
+          if (remainingSurplus >= expected) {
+            reason = `surplus ok (${remainingSurplus.toFixed(0)}W ≥ ${expected.toFixed(0)}W)`;
+            remainingSurplus -= expected;
+          } else if (isOn) {
+            reason = 'min-run hold';
+            remainingSurplus -= expected; // consumer IS running, deduct its expected draw
+          } else {
+            reason = `no surplus (${remainingSurplus.toFixed(0)}W < ${expected.toFixed(0)}W)`;
+          }
         }
         // Only show the countdown when the consumer is actually in min-run hold.
         conditionByConsumer[c.name] = { priority, reason, timeLeft: reason === 'min-run hold' ? timeLeft : null };
       });
 
     const consRows = this.querySelector('#consRows');
-
-    // Capture any unsaved user edits before clearing, keyed by original consumer name.
-    // This prevents the periodic _load() timer from clobbering in-flight input changes.
-    const savedEdits = {};
-    consRows.querySelectorAll('tr[data-consumer]').forEach((tr) => {
-      const key = tr.dataset.consumer;
-      const edits = {};
-      tr.querySelectorAll('[data-k]').forEach((el) => { edits[el.dataset.k] = el.value; });
-      savedEdits[key] = edits;
-    });
-
     consRows.innerHTML = '';
     (data.consumers || []).forEach((c) => {
       const stateData = (data.consumer_states || {})[c.name] || {};
@@ -683,13 +700,22 @@ class PowerManagerPanel extends HTMLElement {
         </td>
       `;
 
-      // Set dropdown to current runtime mode, then restore any unsaved user edit
+      // Set dropdown to current runtime mode
       tr.querySelector('[data-k="mode"]').value = currentMode;
-      if (savedEdits[c.name]) {
-        tr.querySelectorAll('[data-k]').forEach((el) => {
-          if (el.dataset.k in savedEdits[c.name]) el.value = savedEdits[c.name][el.dataset.k];
+      // Restore any in-progress edits (tracked via _pendingEdits since last save)
+      if (this._pendingEdits[c.name]) {
+        Object.entries(this._pendingEdits[c.name]).forEach(([k, v]) => {
+          const el = tr.querySelector(`[data-k="${k}"]`);
+          if (el) el.value = v;
         });
       }
+      // Track future edits in real-time so poll-timer re-renders never lose them
+      tr.querySelectorAll('[data-k]').forEach((el) => {
+        el.addEventListener('input', () => {
+          if (!this._pendingEdits[c.name]) this._pendingEdits[c.name] = {};
+          this._pendingEdits[c.name][el.dataset.k] = el.value;
+        });
+      });
 
       tr.querySelector('[data-a="save"]').onclick = async () => {
         const newName = tr.querySelector('[data-k="name"]').value.trim();
@@ -708,12 +734,14 @@ class PowerManagerPanel extends HTMLElement {
         if (newName && newName !== c.name) payload.new_name = newName;
         try {
           await this._ws('power_manager/update_consumer', payload);
+          delete this._pendingEdits[c.name];
           await this._load();
         } catch (err) {
           alert(`Failed to save consumer: ${err?.message || err}`);
         }
       };
       tr.querySelector('[data-a="del"]').onclick = async () => {
+        delete this._pendingEdits[c.name];
         await this._ws('power_manager/remove_consumer', { name: c.name });
         await this._load();
       };

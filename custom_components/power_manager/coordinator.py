@@ -577,10 +577,11 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
                     runtime.is_on = should_on
 
+                remaining_secs = max(0.0, runtime.on_until_ts - now)
                 consumer_states[name] = {
                     "power": current_power,
                     "mode": runtime.mode,
-                    "on_until": runtime.on_until_ts,
+                    "on_until": unix_now + remaining_secs,  # Unix time, comparable to Date.now()/1000
                     "switch_entity": switch_entity,
                     "is_on": runtime.is_on,
                 }
