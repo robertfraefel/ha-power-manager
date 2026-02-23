@@ -305,8 +305,10 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Add a new producer power sensor.
 
         Raises:
-            UpdateFailed: If a producer with this name already exists.
+            UpdateFailed: If name is empty or a producer with this name already exists.
         """
+        if not name.strip():
+            raise UpdateFailed("producer name cannot be empty")
         if self._find_idx_by_name(self._producers, name) >= 0:
             raise UpdateFailed(f"producer already exists: {name}")
         self._producers.append({"name": name, "entity_id": entity_id})
@@ -375,6 +377,8 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Raises:
             UpdateFailed: If a consumer with this name already exists.
         """
+        if not name.strip():
+            raise UpdateFailed("consumer name cannot be empty")
         if self._find_idx_by_name(self._consumers, name) >= 0:
             raise UpdateFailed(f"consumer already exists: {name}")
         self._consumers.append(

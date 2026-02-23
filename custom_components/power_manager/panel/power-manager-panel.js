@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.13';
+const PANEL_VERSION = '0.2.14';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -143,6 +143,21 @@ class PowerManagerPanel extends HTMLElement {
     if (unit === 'kw' || unit === 'kilowatt' || unit === 'kilowatts') return value * 1000;
     if (unit === 'mw' || unit === 'megawatt' || unit === 'megawatts') return value * 1000000;
     return value;
+  }
+
+  /**
+   * Escape a value for safe use inside an HTML attribute (e.g. value="…").
+   * Prevents names containing `"`, `<`, `>`, or `&` from breaking innerHTML.
+   *
+   * @param {*} s - Value to escape.
+   * @returns {string} HTML-attribute-safe string.
+   */
+  _esc(s) {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 
   /**
@@ -329,13 +344,17 @@ class PowerManagerPanel extends HTMLElement {
    */
   _bind() {
     this.querySelector('#addProd').onclick = async () => {
+      const prodName = this.querySelector('#newProdName').value.trim();
+      if (!prodName) {
+        alert('Producer name cannot be empty.');
+        return;
+      }
       try {
         await this._ws('power_manager/add_producer', {
-          name: this.querySelector('#newProdName').value.trim(),
+          name: prodName,
           entity_id: this.querySelector('#newProdEntity').value.trim(),
         });
-        this.querySelector('#newProdName').value = '';
-        this.querySelector('#newProdEntity').value = '';
+        ['#newProdName', '#newProdEntity'].forEach((sel) => { this.querySelector(sel).value = ''; });
         await this._load();
       } catch (err) {
         alert(`Failed to add producer: ${err?.message || err}`);
@@ -345,12 +364,17 @@ class PowerManagerPanel extends HTMLElement {
     };
 
     this.querySelector('#addCon').onclick = async () => {
+      const conName = this.querySelector('#newConName').value.trim();
+      if (!conName) {
+        alert('Consumer name cannot be empty.');
+        return;
+      }
       const priorityNum = Number(this.querySelector('#newConPrio').value);
       const expectedNum = Number(this.querySelector('#newConExpected').value);
       const minNum = Number(this.querySelector('#newConMin').value);
       try {
         await this._ws('power_manager/add_consumer', {
-          name: this.querySelector('#newConName').value.trim(),
+          name: conName,
           switch_entity: this.querySelector('#newConSwitch').value.trim(),
           power_entity: this.querySelector('#newConPower').value.trim(),
           priority: Number.isFinite(priorityNum) ? Math.round(priorityNum) : 1,
@@ -529,9 +553,9 @@ class PowerManagerPanel extends HTMLElement {
 
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><input data-k="name" value="${p.name}" /></td>
-        <td><input data-k="entity" list="sensorEntitiesList" value="${p.entity_id || ''}" placeholder="sensor.xxx" /></td>
-        <td data-live-watt="${p.entity_id || ''}">${displayW}</td>
+        <td><input data-k="name" value="${this._esc(p.name)}" /></td>
+        <td><input data-k="entity" list="sensorEntitiesList" value="${this._esc(p.entity_id)}" placeholder="sensor.xxx" /></td>
+        <td data-live-watt="${this._esc(p.entity_id)}">${displayW}</td>
         <td style="white-space:nowrap">
           <button data-a="save">Save</button>
           <button data-a="del" class="btn-del">Del</button>
@@ -681,15 +705,15 @@ class PowerManagerPanel extends HTMLElement {
       tr.dataset.consumer = c.name;
       tr.innerHTML = `
         <td style="text-align:center">
-          <span class="status-dot dot-decision ${coordDotClass}" title="${coordTitle}"></span>
+          <span class="status-dot dot-decision ${coordDotClass}" title="${this._esc(coordTitle)}"></span>
         </td>
-        <td><input data-k="name" value="${c.name}" /></td>
+        <td><input data-k="name" value="${this._esc(c.name)}" /></td>
         <td style="white-space:nowrap">
-          <span class="status-dot dot-actual ${actualDotClass}" title="${actualTitle}"
-                data-live-switch="${c.switch_entity || ''}"
-                style="vertical-align:middle;margin-right:4px"></span><input data-k="switch" list="switchEntitiesList" value="${c.switch_entity || ''}" placeholder="switch.xxx" style="width:calc(100% - 18px);display:inline-block;vertical-align:middle" /></td>
-        <td><input data-k="power" list="sensorEntitiesList" value="${c.power_entity || ''}" placeholder="sensor.xxx" /></td>
-        <td style="text-align:right;padding-right:10px" data-live-watt="${c.power_entity || ''}">${displayW}</td>
+          <span class="status-dot dot-actual ${actualDotClass}" title="${this._esc(actualTitle)}"
+                data-live-switch="${this._esc(c.switch_entity)}"
+                style="vertical-align:middle;margin-right:4px"></span><input data-k="switch" list="switchEntitiesList" value="${this._esc(c.switch_entity)}" placeholder="switch.xxx" style="width:calc(100% - 18px);display:inline-block;vertical-align:middle" /></td>
+        <td><input data-k="power" list="sensorEntitiesList" value="${this._esc(c.power_entity)}" placeholder="sensor.xxx" /></td>
+        <td style="text-align:right;padding-right:10px" data-live-watt="${this._esc(c.power_entity)}">${displayW}</td>
         <td><input data-k="priority" type="number" value="${c.priority ?? 1}" /></td>
         <td><input data-k="expected" type="number" value="${c.expected_power ?? 0}" /></td>
         <td><input data-k="min" type="number" value="${c.min_run_minutes ?? 0}" /></td>
