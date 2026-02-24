@@ -32,9 +32,20 @@ Surplus algorithm (auto mode)
 
 Hysteresis (SURPLUS_HYSTERESIS_FACTOR = 5 %)
 ---------------------------------------------
-To avoid rapid toggling near the threshold:
-  - Turn ON  threshold = expected * 1.05  (requires a bit more surplus)
-  - Stay ON  threshold = expected * 0.95  (turns off only when clearly low)
+Prevents rapid toggling when production fluctuates near the consumer's threshold.
+Both thresholds are compared against the gross surplus *before* this consumer's draw:
+
+  gross_surplus (consumer OFF) = remaining_surplus
+  gross_surplus (consumer ON)  = remaining_surplus + expected
+      (consumer's draw is already included in base_load when it is running)
+
+  Turn ON  when  gross_surplus >= expected * 1.05
+  Stay ON  when  gross_surplus >= expected * 0.95
+  Turn OFF when  gross_surplus <  expected * 0.95
+
+Because base_load typically includes the consumer's own draw (all-inclusive smart
+meter), the code adds back expected_power before comparing so that both thresholds
+are measured from the same reference point.
 
 Persistence
 -----------
@@ -594,16 +605,24 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         reason = "off: force_off"
                     else:
                         # Auto mode with hysteresis.
-                        # Use a lower threshold to stay ON, higher to turn ON.
+                        #
+                        # Compare against gross_surplus — the surplus *before*
+                        # this consumer's draw.  When the consumer is already ON
+                        # its expected_power is included in base_load, so we add
+                        # it back to get the same reference point as when it was
+                        # OFF.  This makes both the turn-ON and stay-ON thresholds
+                        # symmetric around the consumer's expected draw, which is
+                        # the correct place to apply hysteresis.
+                        gross = remaining_surplus + (expected if currently_on else 0.0)
                         threshold = (
                             expected * (1.0 - SURPLUS_HYSTERESIS_FACTOR)
                             if currently_on
                             else expected * (1.0 + SURPLUS_HYSTERESIS_FACTOR)
                         )
-                        if remaining_surplus >= threshold:
+                        if gross >= threshold:
                             should_on = True
                             extend_timer = True  # surplus present → arm/extend lock
-                            reason = f"on: surplus {remaining_surplus:.1f}W >= {threshold:.1f}W"
+                            reason = f"on: gross surplus {gross:.1f}W >= {threshold:.1f}W"
                         elif runtime.on_until_ts > now:
                             # Min-runtime lock: keep on but do NOT re-extend the
                             # timer — otherwise it resets to full duration every
@@ -612,7 +631,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             extend_timer = False
                             reason = f"on: holding min runtime ({(runtime.on_until_ts - now):.0f}s left)"
                         else:
-                            reason = f"off: surplus {remaining_surplus:.1f}W < {threshold:.1f}W"
+                            reason = f"off: gross surplus {gross:.1f}W < {threshold:.1f}W"
 
                     _LOGGER.debug("Consumer %r: %s", name, reason)
 
@@ -622,7 +641,11 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             runtime.on_until_ts = max(
                                 runtime.on_until_ts, now + min_run_minutes * 60
                             )
-                        if runtime.mode == MODE_AUTO:
+                        if runtime.mode == MODE_AUTO and not currently_on:
+                            # Deduct from the remaining budget only for fresh
+                            # turn-ons within this cycle.  Already-running
+                            # consumers have their draw reflected in base_load
+                            # and must not be double-counted.
                             remaining_surplus -= expected
                     elif runtime.on_until_ts <= now:
                         await self._set_switch(switch_entity, False)
