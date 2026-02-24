@@ -600,7 +600,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
                     if runtime.mode == MODE_FORCE_ON:
                         should_on = True
-                        extend_timer = True
+                        extend_timer = not currently_on  # arm on fresh turn-on only
                         reason = "on: force_on"
                     elif runtime.mode == MODE_FORCE_OFF:
                         should_on = False
@@ -623,12 +623,11 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         )
                         if remaining_surplus >= threshold:
                             should_on = True
-                            extend_timer = True  # surplus present → arm/extend lock
+                            extend_timer = not currently_on  # arm on OFF→ON transition only
                             reason = f"on: surplus {remaining_surplus:.1f}W >= {threshold:.1f}W"
                         elif runtime.on_until_ts > now:
-                            # Min-runtime lock: keep on but do NOT re-extend the
-                            # timer — otherwise it resets to full duration every
-                            # scan cycle and the consumer never turns off.
+                            # Min-runtime protection: consumer just turned on and
+                            # surplus dropped before min_run_minutes elapsed — keep on.
                             should_on = True
                             extend_timer = False
                             reason = f"on: holding min runtime ({(runtime.on_until_ts - now):.0f}s left)"
@@ -640,9 +639,11 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if should_on:
                         await self._set_switch(switch_entity, True)
                         if extend_timer:
-                            runtime.on_until_ts = max(
-                                runtime.on_until_ts, now + min_run_minutes * 60
-                            )
+                            # Arm the min-runtime lock from the moment of turn-on.
+                            # Only set once per turn-on (extend_timer is False while
+                            # already running), so the timer counts down naturally
+                            # and is not reset on every scan cycle.
+                            runtime.on_until_ts = now + min_run_minutes * 60
                         if runtime.mode == MODE_AUTO and not currently_on:
                             # Deduct from the remaining budget only for fresh
                             # turn-ons within this cycle.  Already-running
