@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.14';
+const PANEL_VERSION = '0.2.15';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -84,6 +84,10 @@ class PowerManagerPanel extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._initialized) {
+      // HA may call set hass() before connectedCallback(), so initialise the
+      // edit maps here too — otherwise _renderProducers/_renderConsumers crash.
+      this._pendingEdits = this._pendingEdits || {};
+      this._pendingProdEdits = this._pendingProdEdits || {};
       this._renderShell();
       this._bind();
       this._initialized = true;
@@ -562,6 +566,7 @@ class PowerManagerPanel extends HTMLElement {
         </td>
       `;
       // Restore any in-progress edits for this producer
+      this._pendingProdEdits = this._pendingProdEdits || {};
       if (this._pendingProdEdits[p.name]) {
         Object.entries(this._pendingProdEdits[p.name]).forEach(([k, v]) => {
           const el = tr.querySelector(`[data-k="${k}"]`);
@@ -735,6 +740,7 @@ class PowerManagerPanel extends HTMLElement {
       // Set dropdown to current runtime mode
       tr.querySelector('[data-k="mode"]').value = currentMode;
       // Restore any in-progress edits (tracked via _pendingEdits since last save)
+      this._pendingEdits = this._pendingEdits || {};
       if (this._pendingEdits[c.name]) {
         Object.entries(this._pendingEdits[c.name]).forEach(([k, v]) => {
           const el = tr.querySelector(`[data-k="${k}"]`);
