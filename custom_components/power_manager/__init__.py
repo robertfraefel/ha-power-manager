@@ -150,7 +150,7 @@ async def _register_panel(hass: HomeAssistant) -> None:
         hass,
         frontend_url_path=PANEL_URL_PATH,
         webcomponent_name="power-manager-panel",
-        sidebar_title="Dashboard",
+        sidebar_title="Power Manager",
         sidebar_icon="mdi:flash",
         module_url=f"{PANEL_STATIC_URL}/{PANEL_JS_NAME}?v={INTEGRATION_VERSION}",
         js_url=f"{PANEL_STATIC_URL}/{PANEL_JS_NAME}?v={INTEGRATION_VERSION}",

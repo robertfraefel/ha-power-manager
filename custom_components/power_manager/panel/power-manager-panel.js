@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.18';
+const PANEL_VERSION = '0.2.19';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -482,7 +482,7 @@ class PowerManagerPanel extends HTMLElement {
           </div>
         </div></div>
         <div class="stat"><div class="stat-label">Backend</div><div class="stat-value" style="font-size:.9em">${data.integration_version}</div></div>
-        <div class="stat"><div class="stat-label">Panel</div><div class="stat-value" style="font-size:.9em">${PANEL_VERSION}</div></div>
+        <div class="stat"><div class="stat-label">Dashboard</div><div class="stat-value" style="font-size:.9em">${PANEL_VERSION}</div></div>
       </div>
     `;
 
