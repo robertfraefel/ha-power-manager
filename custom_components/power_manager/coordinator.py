@@ -569,34 +569,30 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             now = self.hass.loop.time()
             unix_now = time.time()
+
+            # Phase 1: compute decisions in ascending priority order so that
+            # the remaining_surplus budget is deducted in the correct sequence.
+            decisions: list[dict[str, Any]] = []
             for c in sorted_consumers:
                 name = c["name"]
-                switch_entity = c["switch_entity"]
                 expected = float(c.get("expected_power", 0))
                 min_run_minutes = float(c.get("min_run_minutes", 0))
                 runtime = self._runtime.setdefault(name, ConsumerRuntime())
-
                 current_power = self._state_float(c.get("power_entity", ""))
+                currently_on = runtime.is_on
 
-                if self.running:
-                    if runtime.mode == MODE_DEACTIVATED:
-                        # Deactivated: skip entirely — do not touch the switch
-                        # and do not deduct from the surplus budget.
-                        _LOGGER.debug("Consumer %r: deactivated – skipped", name)
-                        runtime.is_on = False
-                        consumer_states[name] = {
-                            "power": current_power,
-                            "mode": runtime.mode,
-                            "on_until": unix_now + max(0.0, runtime.on_until_ts - now),
-                            "switch_entity": switch_entity,
-                            "is_on": False,
-                        }
-                        continue
+                should_on = False
+                extend_timer = False
+                skip_switch = False  # True for deactivated or paused
 
-                    should_on = False
-                    extend_timer = False  # whether to (re-)arm the min-runtime lock
+                if not self.running:
+                    skip_switch = True
+                elif runtime.mode == MODE_DEACTIVATED:
+                    runtime.is_on = False
+                    skip_switch = True
+                    _LOGGER.debug("Consumer %r: deactivated – skipped", name)
+                else:
                     reason = "off: insufficient surplus"
-                    currently_on = runtime.is_on
 
                     if runtime.mode == MODE_FORCE_ON:
                         should_on = True
@@ -626,8 +622,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             extend_timer = not currently_on  # arm on OFF→ON transition only
                             reason = f"on: surplus {remaining_surplus:.1f}W >= {threshold:.1f}W"
                         elif runtime.on_until_ts > now:
-                            # Min-runtime protection: consumer just turned on and
-                            # surplus dropped before min_run_minutes elapsed — keep on.
+                            # Min-runtime protection: surplus dropped before timer elapsed.
                             should_on = True
                             extend_timer = False
                             reason = f"on: holding min runtime ({(runtime.on_until_ts - now):.0f}s left)"
@@ -636,31 +631,50 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
                     _LOGGER.debug("Consumer %r: %s", name, reason)
 
-                    if should_on:
-                        await self._set_switch(switch_entity, True)
-                        if extend_timer:
-                            # Arm the min-runtime lock from the moment of turn-on.
-                            # Only set once per turn-on (extend_timer is False while
-                            # already running), so the timer counts down naturally
-                            # and is not reset on every scan cycle.
-                            runtime.on_until_ts = now + min_run_minutes * 60
-                        if runtime.mode == MODE_AUTO and not currently_on:
-                            # Deduct from the remaining budget only for fresh
-                            # turn-ons within this cycle.  Already-running
-                            # consumers have their draw reflected in base_load
-                            # and must not be double-counted.
-                            remaining_surplus -= expected
-                    elif runtime.on_until_ts <= now:
-                        await self._set_switch(switch_entity, False)
+                    # Deduct from budget for fresh auto turn-ons (priority order preserved).
+                    if should_on and runtime.mode == MODE_AUTO and not currently_on:
+                        remaining_surplus -= expected
 
-                    runtime.is_on = should_on
+                decisions.append({
+                    "c": c,
+                    "runtime": runtime,
+                    "should_on": should_on,
+                    "extend_timer": extend_timer,
+                    "skip_switch": skip_switch,
+                    "current_power": current_power,
+                })
 
+            # Phase 2: turn OFF in reverse priority order (lowest priority off first).
+            for d in reversed(decisions):
+                if d["skip_switch"] or d["should_on"]:
+                    continue
+                if d["runtime"].on_until_ts <= now:
+                    await self._set_switch(d["c"]["switch_entity"], False)
+
+            # Phase 3: turn ON in forward priority order (highest priority on first).
+            for d in decisions:
+                if d["skip_switch"] or not d["should_on"]:
+                    continue
+                runtime = d["runtime"]
+                await self._set_switch(d["c"]["switch_entity"], True)
+                if d["extend_timer"]:
+                    # Arm the min-runtime lock from the moment of turn-on.
+                    # Only set once per turn-on (extend_timer is False while
+                    # already running), so the timer counts down naturally.
+                    runtime.on_until_ts = now + float(d["c"].get("min_run_minutes", 0)) * 60
+
+            # Phase 4: update runtime state and build consumer_states.
+            for d in decisions:
+                c = d["c"]
+                runtime = d["runtime"]
+                if not d["skip_switch"]:
+                    runtime.is_on = d["should_on"]
                 remaining_secs = max(0.0, runtime.on_until_ts - now)
-                consumer_states[name] = {
-                    "power": current_power,
+                consumer_states[c["name"]] = {
+                    "power": d["current_power"],
                     "mode": runtime.mode,
                     "on_until": unix_now + remaining_secs,  # Unix time, comparable to Date.now()/1000
-                    "switch_entity": switch_entity,
+                    "switch_entity": c["switch_entity"],
                     "is_on": runtime.is_on,
                 }
 
