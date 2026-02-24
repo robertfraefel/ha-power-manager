@@ -581,11 +581,13 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         continue
 
                     should_on = False
+                    extend_timer = False  # whether to (re-)arm the min-runtime lock
                     reason = "off: insufficient surplus"
                     currently_on = runtime.is_on
 
                     if runtime.mode == MODE_FORCE_ON:
                         should_on = True
+                        extend_timer = True
                         reason = "on: force_on"
                     elif runtime.mode == MODE_FORCE_OFF:
                         should_on = False
@@ -600,10 +602,14 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         )
                         if remaining_surplus >= threshold:
                             should_on = True
+                            extend_timer = True  # surplus present → arm/extend lock
                             reason = f"on: surplus {remaining_surplus:.1f}W >= {threshold:.1f}W"
                         elif runtime.on_until_ts > now:
-                            # Min-runtime lock: keep on even without surplus.
+                            # Min-runtime lock: keep on but do NOT re-extend the
+                            # timer — otherwise it resets to full duration every
+                            # scan cycle and the consumer never turns off.
                             should_on = True
+                            extend_timer = False
                             reason = f"on: holding min runtime ({(runtime.on_until_ts - now):.0f}s left)"
                         else:
                             reason = f"off: surplus {remaining_surplus:.1f}W < {threshold:.1f}W"
@@ -612,10 +618,10 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
                     if should_on:
                         await self._set_switch(switch_entity, True)
-                        # Extend the minimum-runtime lock if not already held longer.
-                        runtime.on_until_ts = max(
-                            runtime.on_until_ts, now + min_run_minutes * 60
-                        )
+                        if extend_timer:
+                            runtime.on_until_ts = max(
+                                runtime.on_until_ts, now + min_run_minutes * 60
+                            )
                         if runtime.mode == MODE_AUTO:
                             remaining_surplus -= expected
                     elif runtime.on_until_ts <= now:
