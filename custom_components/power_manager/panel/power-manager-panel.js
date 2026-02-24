@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.15';
+const PANEL_VERSION = '0.2.16';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -650,18 +650,28 @@ class PowerManagerPanel extends HTMLElement {
         } else if (mode === 'force_off') {
           reason = 'force_off';
         } else {
-          // auto: use the coordinator's is_on decision as ground truth.
-          // If is_on=true but surplus is insufficient, the coordinator kept it on
-          // via the min-run hold — don't override that with a misleading "no surplus".
+          // auto mode — mirror the backend algorithm exactly:
+          //   Consumer ON  → stay on while remaining_surplus >= 0.
+          //                  Draw is already in base_load; do not deduct.
+          //   Consumer OFF → turn on when remaining_surplus >= expected * 1.05.
+          //                  Deduct expected so lower-priority consumers see the
+          //                  correct reduced budget in this display pass.
           const isOn = Boolean(state.is_on);
-          if (remainingSurplus >= expected) {
-            reason = `surplus ok (${remainingSurplus.toFixed(0)}W ≥ ${expected.toFixed(0)}W)`;
-            remainingSurplus -= expected;
-          } else if (isOn) {
-            reason = 'min-run hold';
-            remainingSurplus -= expected; // consumer IS running, deduct its expected draw
+          const turnOnThreshold = expected * 1.05;
+          if (isOn) {
+            if (remainingSurplus >= 0) {
+              reason = `running (${remainingSurplus.toFixed(0)}W surplus)`;
+            } else {
+              reason = 'min-run hold';
+            }
+            // No deduction — draw already reflected in base_load.
           } else {
-            reason = `no surplus (${remainingSurplus.toFixed(0)}W < ${expected.toFixed(0)}W)`;
+            if (remainingSurplus >= turnOnThreshold) {
+              reason = `surplus ok (${remainingSurplus.toFixed(0)}W ≥ ${turnOnThreshold.toFixed(0)}W)`;
+              remainingSurplus -= expected;
+            } else {
+              reason = `no surplus (${remainingSurplus.toFixed(0)}W < ${turnOnThreshold.toFixed(0)}W)`;
+            }
           }
         }
         // Only show the countdown when the consumer is actually in min-run hold.
