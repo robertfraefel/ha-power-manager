@@ -33,19 +33,20 @@ Surplus algorithm (auto mode)
 Hysteresis (SURPLUS_HYSTERESIS_FACTOR = 5 %)
 ---------------------------------------------
 Prevents rapid toggling when production fluctuates near the consumer's threshold.
-Both thresholds are compared against the gross surplus *before* this consumer's draw:
+Two different conditions apply depending on whether the consumer is already running:
 
-  gross_surplus (consumer OFF) = remaining_surplus
-  gross_surplus (consumer ON)  = remaining_surplus + expected
-      (consumer's draw is already included in base_load when it is running)
+  Consumer OFF → turn ON  when  remaining_surplus >= expected * 1.05
+      Requires a clear positive margin before switching on.
 
-  Turn ON  when  gross_surplus >= expected * 1.05
-  Stay ON  when  gross_surplus >= expected * 0.95
-  Turn OFF when  gross_surplus <  expected * 0.95
+  Consumer ON  → stay ON  when  remaining_surplus >= 0
+      base_load already includes the consumer's draw, so remaining_surplus = 0
+      means production exactly covers all consumption.  Stay on as long as we
+      are not in deficit; there is no reason to turn off a running consumer
+      while production still covers it.
 
-Because base_load typically includes the consumer's own draw (all-inclusive smart
-meter), the code adds back expected_power before comparing so that both thresholds
-are measured from the same reference point.
+The asymmetric band (turn on at +5 %, turn off at 0) provides hysteresis:
+a consumer that just turned on will not toggle off unless production actually
+drops below total consumption.
 
 Persistence
 -----------
@@ -606,23 +607,22 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     else:
                         # Auto mode with hysteresis.
                         #
-                        # Compare against gross_surplus — the surplus *before*
-                        # this consumer's draw.  When the consumer is already ON
-                        # its expected_power is included in base_load, so we add
-                        # it back to get the same reference point as when it was
-                        # OFF.  This makes both the turn-ON and stay-ON thresholds
-                        # symmetric around the consumer's expected draw, which is
-                        # the correct place to apply hysteresis.
-                        gross = remaining_surplus + (expected if currently_on else 0.0)
+                        # Turn ON  requires surplus >= expected * 1.05 — a clear
+                        # positive margin prevents toggling near the threshold.
+                        #
+                        # Stay ON  requires surplus >= 0 — base_load already
+                        # includes the consumer's draw when it is running, so
+                        # remaining_surplus == 0 means production exactly covers
+                        # all consumption.  Only turn off when we are in deficit.
                         threshold = (
-                            expected * (1.0 - SURPLUS_HYSTERESIS_FACTOR)
+                            0.0
                             if currently_on
                             else expected * (1.0 + SURPLUS_HYSTERESIS_FACTOR)
                         )
-                        if gross >= threshold:
+                        if remaining_surplus >= threshold:
                             should_on = True
                             extend_timer = True  # surplus present → arm/extend lock
-                            reason = f"on: gross surplus {gross:.1f}W >= {threshold:.1f}W"
+                            reason = f"on: surplus {remaining_surplus:.1f}W >= {threshold:.1f}W"
                         elif runtime.on_until_ts > now:
                             # Min-runtime lock: keep on but do NOT re-extend the
                             # timer — otherwise it resets to full duration every
@@ -631,7 +631,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             extend_timer = False
                             reason = f"on: holding min runtime ({(runtime.on_until_ts - now):.0f}s left)"
                         else:
-                            reason = f"off: gross surplus {gross:.1f}W < {threshold:.1f}W"
+                            reason = f"off: surplus {remaining_surplus:.1f}W < {threshold:.1f}W"
 
                     _LOGGER.debug("Consumer %r: %s", name, reason)
 

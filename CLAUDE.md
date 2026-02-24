@@ -50,17 +50,12 @@ surplus = total_production - base_load
 
 `base_load` is typically a whole-house smart meter that **includes** the draw of managed consumers when they are running. The algorithm accounts for this.
 
-Hysteresis (`SURPLUS_HYSTERESIS_FACTOR = 5%`) prevents toggling when production fluctuates near a consumer's threshold. Both thresholds are compared against `gross_surplus` — the surplus **before** this consumer's draw:
+Hysteresis (`SURPLUS_HYSTERESIS_FACTOR = 5%`) prevents toggling when production fluctuates near a consumer's threshold. The two conditions are asymmetric by design:
 
-```
-gross_surplus (consumer OFF) = remaining_surplus
-gross_surplus (consumer ON)  = remaining_surplus + expected_power
-    ↑ consumer's draw is already in base_load, so add it back
-```
+- **Turn ON**: `remaining_surplus ≥ expected * 1.05` — requires a clear margin above expected draw.
+- **Stay ON**: `remaining_surplus ≥ 0` — `base_load` already includes the consumer's draw when running, so `remaining_surplus = 0` means production exactly covers all consumption. Turn off only when in deficit.
 
-- Turn ON:  `gross_surplus ≥ expected * 1.05`
-- Stay ON:  `gross_surplus ≥ expected * 0.95`
-- Turn OFF: `gross_surplus <  expected * 0.95`
+This gives a hysteresis band of ~5% of `expected_power`: a consumer turns on at +5% above expected and turns off only when surplus goes negative.
 
 Budget deduction: `remaining_surplus -= expected` only on fresh turn-ons within the same cycle. Already-running consumers are not re-deducted because their draw is already in `base_load`.
 
