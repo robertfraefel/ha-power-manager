@@ -478,6 +478,14 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_save()
         await self.async_request_refresh()
 
+    async def async_clear_base_load(self) -> None:
+        """Reset the base-load entity to empty."""
+        self._base_load_entity = ""
+        self._base_load_name = "Base load"
+        _LOGGER.info("Base load entity cleared")
+        await self._async_save()
+        await self.async_request_refresh()
+
     async def async_clear_producers(self) -> None:
         """Remove all producers."""
         count = len(self._producers)
