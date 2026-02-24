@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.22';
+const PANEL_VERSION = '0.2.23';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -300,7 +300,7 @@ class PowerManagerPanel extends HTMLElement {
               <thead>
                 <tr>
                   <th style="width:44px"></th>
-                  <th>Name</th><th>Switch</th><th>Power sensor</th><th>Current power in W</th>
+                  <th>Name</th><th>Switch entity</th><th>Power sensor entity</th><th>Current power in W</th>
                   <th>Prio</th><th>Exp power in W</th><th>Min run time in min</th><th>Mode</th>
                   <th>Decision</th><th style="width:110px"></th>
                 </tr>
@@ -735,7 +735,7 @@ class PowerManagerPanel extends HTMLElement {
         if (!data.running) return '<span style="opacity:0.6;font-style:italic">Power Manager stopped</span>';
         const { priority, reason, timeLeft } = conditionByConsumer[c.name] || { priority: c.priority ?? '?', reason: 'n/a', timeLeft: null };
         const prioHtml = `<span style="display:inline-block;background:#e0e0e0;color:#333;border-radius:3px;padding:1px 5px;font-weight:700;font-size:10px;margin-right:5px;letter-spacing:0.03em">P${priority}</span>`;
-        const timeHtml = timeLeft ? `<br><span style="opacity:0.65">⏱ ${timeLeft} left</span>` : '';
+        const timeHtml = timeLeft ? `<br><span style="opacity:0.65">⏱ ${timeLeft}${timeLeft !== '✓' ? ' left' : ''}</span>` : '';
         return `${prioHtml}${reason}${timeHtml}`;
       })();
 
