@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.20';
+const PANEL_VERSION = '0.2.21';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -638,9 +638,12 @@ class PowerManagerPanel extends HTMLElement {
         const mode = state.mode || c.mode || 'auto';
         const expected = Number(c.expected_power || 0);
         const priority = Number(c.priority ?? 999);
+        const isOn = Boolean(state.is_on);
         const onUntil = Number(state.on_until || 0);
         const secLeft = onUntil > nowTs ? Math.max(0, Math.round(onUntil - nowTs)) : 0;
-        const timeLeft = secLeft > 0 ? _fmtTime(secLeft) : null;
+        // Show countdown while running; once expired keep showing '✓' (min-run done)
+        // so the timer never disappears while the consumer is ON.
+        const timeLeft = secLeft > 0 ? _fmtTime(secLeft) : (isOn ? '✓' : null);
 
         let reason;
         if (mode === 'deactivated') {
@@ -656,7 +659,6 @@ class PowerManagerPanel extends HTMLElement {
           //   Consumer OFF → turn on when remaining_surplus >= expected * 1.05.
           //                  Deduct expected so lower-priority consumers see the
           //                  correct reduced budget in this display pass.
-          const isOn = Boolean(state.is_on);
           const currentPower = Number(state.power ?? 0);
           const turnOnThreshold = expected * 1.05;
           const turnOffThreshold = -(currentPower * 0.05);
@@ -676,7 +678,6 @@ class PowerManagerPanel extends HTMLElement {
             }
           }
         }
-        // Show the countdown from the moment of turn-on until the timer expires.
         conditionByConsumer[c.name] = { priority, reason, timeLeft };
       });
 
