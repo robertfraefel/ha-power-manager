@@ -29,6 +29,9 @@ Surplus algorithm (auto mode)
      - auto        : apply hysteresis threshold; turn on if surplus allows,
                      enforce min-runtime lock, deduct expected_power from
                      remaining surplus if on.
+6. Priority preemption: if a higher-priority auto consumer cannot turn on,
+   any lower-priority auto consumer that is ON (and not in min-run hold)
+   is turned off so it frees its load for the next cycle.
 
 Hysteresis (SURPLUS_HYSTERESIS_FACTOR = 5 %)
 ---------------------------------------------
@@ -667,6 +670,37 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "skip_switch": skip_switch,
                     "current_power": current_power,
                 })
+
+            # Phase 1.5: Priority preemption.
+            # If a higher-priority (lower number) auto consumer cannot get
+            # surplus, shed lower-priority auto consumers that are ON but
+            # not in their min-run hold window, so they release their load
+            # and let higher-priority consumers claim it on the next cycle.
+            # Consumers in min-run hold are exempt — interrupting them would
+            # defeat the purpose of the hold (e.g. a mid-cycle washing machine).
+            if self.running:
+                auto_off_min_priority = min(
+                    (int(d["c"].get("priority", 999))
+                     for d in decisions
+                     if not d["should_on"]
+                     and not d["skip_switch"]
+                     and d["runtime"].mode == MODE_AUTO),
+                    default=None,
+                )
+                if auto_off_min_priority is not None:
+                    for d in decisions:
+                        if (
+                            d["should_on"]
+                            and not d["skip_switch"]
+                            and d["runtime"].mode == MODE_AUTO
+                            and d["runtime"].on_until_ts <= now  # not in min-run hold
+                            and int(d["c"].get("priority", 999)) > auto_off_min_priority
+                        ):
+                            d["should_on"] = False
+                            _LOGGER.debug(
+                                "Consumer %r preempted: P%d needs surplus first",
+                                d["c"]["name"], auto_off_min_priority,
+                            )
 
             # Startup warmup: defer all switch commands for the first
             # STARTUP_WARMUP_CYCLES cycles so HA entity states can settle
