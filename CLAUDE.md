@@ -52,10 +52,10 @@ surplus = total_production - base_load
 
 Hysteresis (`SURPLUS_HYSTERESIS_FACTOR = 5%`) prevents toggling when production fluctuates near a consumer's threshold. The two conditions are asymmetric by design:
 
-- **Turn ON**: `remaining_surplus ≥ expected * 1.05` — requires a clear margin above expected draw.
-- **Stay ON**: `remaining_surplus ≥ 0` — `base_load` already includes the consumer's draw when running, so `remaining_surplus = 0` means production exactly covers all consumption. Turn off only when in deficit.
+- **Turn ON**: `remaining_surplus ≥ expected * 1.05` — needs a clear margin above expected draw; uses `expected` because the consumer is OFF and its actual draw is unknown.
+- **Stay ON**: `remaining_surplus ≥ -(current_power * 0.05)` — tolerates a deficit of up to 5% of the actual measured draw; uses `current_power` (not `expected`) because that is what `base_load` reflects. When `current_power = 0` (not yet measured) the threshold is 0.
 
-This gives a hysteresis band of ~5% of `expected_power`: a consumer turns on at +5% above expected and turns off only when surplus goes negative.
+The asymmetric band: turn on at +5% of expected, turn off only when deficit exceeds 5% of actual draw.
 
 Budget deduction: `remaining_surplus -= expected` only on fresh turn-ons within the same cycle. Already-running consumers are not re-deducted because their draw is already in `base_load`.
 

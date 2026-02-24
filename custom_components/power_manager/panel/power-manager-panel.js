@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.16';
+const PANEL_VERSION = '0.2.17';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -651,15 +651,17 @@ class PowerManagerPanel extends HTMLElement {
           reason = 'force_off';
         } else {
           // auto mode — mirror the backend algorithm exactly:
-          //   Consumer ON  → stay on while remaining_surplus >= 0.
+          //   Consumer ON  → stay on while remaining_surplus >= -(current_power * 0.05).
           //                  Draw is already in base_load; do not deduct.
           //   Consumer OFF → turn on when remaining_surplus >= expected * 1.05.
           //                  Deduct expected so lower-priority consumers see the
           //                  correct reduced budget in this display pass.
           const isOn = Boolean(state.is_on);
+          const currentPower = Number(state.power ?? 0);
           const turnOnThreshold = expected * 1.05;
+          const turnOffThreshold = -(currentPower * 0.05);
           if (isOn) {
-            if (remainingSurplus >= 0) {
+            if (remainingSurplus >= turnOffThreshold) {
               reason = `running (${remainingSurplus.toFixed(0)}W surplus)`;
             } else {
               reason = 'min-run hold';

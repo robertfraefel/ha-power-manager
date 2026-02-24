@@ -38,15 +38,16 @@ Two different conditions apply depending on whether the consumer is already runn
   Consumer OFF → turn ON  when  remaining_surplus >= expected * 1.05
       Requires a clear positive margin before switching on.
 
-  Consumer ON  → stay ON  when  remaining_surplus >= 0
-      base_load already includes the consumer's draw, so remaining_surplus = 0
-      means production exactly covers all consumption.  Stay on as long as we
-      are not in deficit; there is no reason to turn off a running consumer
-      while production still covers it.
+  Consumer ON  → stay ON  when  remaining_surplus >= -(current_power * FACTOR)
+      base_load already includes the consumer's draw.  A small negative margin
+      (5 % of the actual measured draw) is tolerated before switching off, so
+      brief sub-zero fluctuations in production do not trigger an immediate
+      turn-off.  current_power is used — not expected — because the actual draw
+      is what base_load reflects.
 
-The asymmetric band (turn on at +5 %, turn off at 0) provides hysteresis:
-a consumer that just turned on will not toggle off unless production actually
-drops below total consumption.
+The asymmetric band provides hysteresis:
+  turn on  when gross surplus > expected * 1.05 (5 % above expected draw)
+  turn off when surplus deficit > current_power * 0.05 (5 % of actual draw)
 
 Persistence
 -----------
@@ -610,12 +611,13 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         # Turn ON  requires surplus >= expected * 1.05 — a clear
                         # positive margin prevents toggling near the threshold.
                         #
-                        # Stay ON  requires surplus >= 0 — base_load already
-                        # includes the consumer's draw when it is running, so
-                        # remaining_surplus == 0 means production exactly covers
-                        # all consumption.  Only turn off when we are in deficit.
+                        # Stay ON  tolerates a small deficit of up to 5 % of the
+                        # consumer's actual measured draw.  current_power is used
+                        # (not expected) because base_load reflects the real draw.
+                        # When current_power is 0 (consumer just turned on and not
+                        # yet measured) the threshold falls back to 0.
                         threshold = (
-                            0.0
+                            -(current_power * SURPLUS_HYSTERESIS_FACTOR)
                             if currently_on
                             else expected * (1.0 + SURPLUS_HYSTERESIS_FACTOR)
                         )
