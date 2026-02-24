@@ -478,6 +478,23 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_save()
         await self.async_request_refresh()
 
+    async def async_clear_producers(self) -> None:
+        """Remove all producers."""
+        count = len(self._producers)
+        self._producers.clear()
+        _LOGGER.info("All producers cleared (%d removed)", count)
+        await self._async_save()
+        await self.async_request_refresh()
+
+    async def async_clear_consumers(self) -> None:
+        """Remove all consumers and their runtime state."""
+        count = len(self._consumers)
+        self._consumers.clear()
+        self._runtime.clear()
+        _LOGGER.info("All consumers cleared (%d removed)", count)
+        await self._async_save()
+        await self.async_request_refresh()
+
     # ── coordinator update cycle ───────────────────────────────────────────
 
     async def _async_update_data(self) -> dict[str, Any]:

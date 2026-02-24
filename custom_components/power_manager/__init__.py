@@ -72,6 +72,8 @@ SERVICE_GET_CONFIG = "get_config"
 SERVICE_GET_VERSION = "get_version"
 SERVICE_GET_BASE_LOAD_ENTITY = "get_base_load_entity"
 SERVICE_UPDATE_BASE_LOAD_ENTITY = "update_base_load_entity"
+SERVICE_CLEAR_PRODUCERS = "clear_producers"
+SERVICE_CLEAR_CONSUMERS = "clear_consumers"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -574,6 +576,18 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         if coordinator:
             await coordinator.async_update_base_load_entity(call.data["entity_id"])
 
+    async def _clear_producers(call: ServiceCall) -> None:
+        """Remove all producers via HA service call."""
+        coordinator = _coordinator(hass)
+        if coordinator:
+            await coordinator.async_clear_producers()
+
+    async def _clear_consumers(call: ServiceCall) -> None:
+        """Remove all consumers via HA service call."""
+        coordinator = _coordinator(hass)
+        if coordinator:
+            await coordinator.async_clear_consumers()
+
     # ── service registration ───────────────────────────────────────────────
 
     hass.services.async_register(
@@ -664,6 +678,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         _update_base_load_entity,
         schema=vol.Schema({vol.Required("entity_id"): cv.entity_id}),
     )
+    hass.services.async_register(DOMAIN, SERVICE_CLEAR_PRODUCERS, _clear_producers, schema=vol.Schema({}))
+    hass.services.async_register(DOMAIN, SERVICE_CLEAR_CONSUMERS, _clear_consumers, schema=vol.Schema({}))
 
     await _register_panel(hass)
     await _register_ws(hass)
