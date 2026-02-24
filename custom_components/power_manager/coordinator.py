@@ -184,6 +184,8 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._producers = stored.get("producers", self._producers)
         self._consumers = stored.get("consumers", self._consumers)
         self.running = bool(stored.get("running", self.running))
+        if "scan_interval_seconds" in stored:
+            self.update_interval = timedelta(seconds=int(stored["scan_interval_seconds"]))
 
         # Rebuild ConsumerRuntime objects from the saved mode map.
         runtime_modes = stored.get("runtime_modes", {})
@@ -247,6 +249,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "producers": self._producers,
             "consumers": self._consumers,
             "running": self.running,
+            "scan_interval_seconds": int(self.update_interval.total_seconds()),
             # Only modes are persisted; transient fields (is_on, on_until_ts) are not.
             "runtime_modes": {name: rt.mode for name, rt in self._runtime.items()},
         }
@@ -319,6 +322,19 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if name is not None:
             self._base_load_name = name
         _LOGGER.info("Base load entity updated to %s (name=%r)", entity_id, self._base_load_name)
+        await self._async_save()
+        await self.async_request_refresh()
+
+    async def async_set_scan_interval(self, interval_seconds: int) -> None:
+        """Change the coordinator polling interval and persist the new value.
+
+        Raises:
+            UpdateFailed: If interval_seconds is less than 5.
+        """
+        if interval_seconds < 5:
+            raise UpdateFailed("scan interval must be at least 5 seconds")
+        self.update_interval = timedelta(seconds=interval_seconds)
+        _LOGGER.info("Scan interval updated to %d s", interval_seconds)
         await self._async_save()
         await self.async_request_refresh()
 

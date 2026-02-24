@@ -369,6 +369,26 @@ async def _register_ws(hass: HomeAssistant) -> None:
         await coordinator.async_remove_consumer(msg["name"])
         connection.send_result(msg["id"], _config_payload(coordinator))
 
+    @websocket_api.websocket_command(
+        {
+            "type": "power_manager/set_scan_interval",
+            "scan_interval_seconds": vol.All(vol.Coerce(int), vol.Range(min=5, max=3600)),
+        }
+    )
+    @websocket_api.async_response
+    async def ws_set_scan_interval(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        """Update the coordinator polling interval (5–3600 s)."""
+        coordinator = _coordinator(hass)
+        if not coordinator:
+            connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
+            return
+        await coordinator.async_set_scan_interval(int(msg["scan_interval_seconds"]))
+        connection.send_result(msg["id"], _config_payload(coordinator))
+
     websocket_api.async_register_command(hass, ws_get_config)
     websocket_api.async_register_command(hass, ws_set_base)
     websocket_api.async_register_command(hass, ws_add_producer)
@@ -377,6 +397,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_add_consumer)
     websocket_api.async_register_command(hass, ws_update_consumer)
     websocket_api.async_register_command(hass, ws_remove_consumer)
+    websocket_api.async_register_command(hass, ws_set_scan_interval)
 
     hass.data[DOMAIN]["ws_registered"] = True
 

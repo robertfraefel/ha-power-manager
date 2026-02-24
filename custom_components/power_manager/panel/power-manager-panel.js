@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.21';
+const PANEL_VERSION = '0.2.22';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -272,7 +272,7 @@ class PowerManagerPanel extends HTMLElement {
           <h3>Producers</h3>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Name</th><th>Entity</th><th>Current W</th><th style="width:110px"></th></tr></thead>
+              <thead><tr><th>Name</th><th>Entity</th><th>Current power in W</th><th style="width:110px"></th></tr></thead>
               <tbody id="prodRows"></tbody>
             </table>
           </div>
@@ -287,7 +287,7 @@ class PowerManagerPanel extends HTMLElement {
           <h3>Base load</h3>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Name</th><th>Entity</th><th>Current W</th><th style="width:110px"></th></tr></thead>
+              <thead><tr><th>Name</th><th>Entity</th><th>Current power in W</th><th style="width:110px"></th></tr></thead>
               <tbody id="baseRows"></tbody>
             </table>
           </div>
@@ -300,8 +300,8 @@ class PowerManagerPanel extends HTMLElement {
               <thead>
                 <tr>
                   <th style="width:44px"></th>
-                  <th>Name</th><th>Switch</th><th>Power sensor</th><th>W now</th>
-                  <th>Prio</th><th>Exp W</th><th>Min min</th><th>Mode</th>
+                  <th>Name</th><th>Switch</th><th>Power sensor</th><th>Current power in W</th>
+                  <th>Prio</th><th>Exp power in W</th><th>Min run time in min</th><th>Mode</th>
                   <th>Decision</th><th style="width:110px"></th>
                 </tr>
               </thead>
@@ -421,9 +421,14 @@ class PowerManagerPanel extends HTMLElement {
       }
       this._data = data;
 
-      // Start auto-refresh timers on first successful load
+      // Start (or restart if interval changed) the auto-refresh poll timer.
+      const interval = Math.max(5, Number(data.scan_interval_seconds) || 10) * 1000;
+      if (this._pollTimer && this._pollIntervalMs !== interval) {
+        clearInterval(this._pollTimer);
+        this._pollTimer = null;
+      }
       if (!this._pollTimer) {
-        const interval = Math.max(5, Number(data.scan_interval_seconds) || 10) * 1000;
+        this._pollIntervalMs = interval;
         this._pollTimer = setInterval(() => this._load(), interval);
       }
       if (!this._lightTimer) {
@@ -474,7 +479,12 @@ class PowerManagerPanel extends HTMLElement {
         <div class="stat"><div class="stat-label">${data.base_load_name || 'Base load'}</div><div class="stat-value">${fmt(base)}</div></div>
         <div class="stat"><div class="stat-label">Surplus</div><div class="stat-value" style="color:${surplusColor}">${fmt(surplus)}</div></div>
         <div class="stat"><div class="stat-label">Remaining</div><div class="stat-value">${fmt(remaining)}</div></div>
-        <div class="stat"><div class="stat-label">Scan interval</div><div class="stat-value">${data.scan_interval_seconds}s</div></div>
+        <div class="stat"><div class="stat-label">Scan interval</div><div class="stat-value" style="display:flex;align-items:center;gap:4px">
+          <input id="scanIntervalInput" type="number" min="5" max="3600" value="${data.scan_interval_seconds}"
+                 style="width:52px;padding:2px 4px;font-size:.9em;border:1px solid var(--divider-color);border-radius:4px;background:var(--primary-background-color);color:var(--primary-text-color)">
+          <span style="font-size:.85em">s</span>
+          <button id="saveScanInterval" style="padding:2px 6px;font-size:.85em">Set</button>
+        </div></div>
         <div class="stat"><div class="stat-label">Status</div><div class="stat-value">
           <div class="toggle-wrap">
             <label class="toggle"><input type="checkbox" id="runningToggle" ${data.running ? 'checked' : ''}><span class="toggle-track"></span></label>
@@ -488,6 +498,16 @@ class PowerManagerPanel extends HTMLElement {
 
     this.querySelector('#runningToggle').onchange = async (e) => {
       await this._hass.callService('power_manager', 'set_running', { running: e.target.checked });
+      await this._load();
+    };
+
+    this.querySelector('#saveScanInterval').onclick = async () => {
+      const val = parseInt(this.querySelector('#scanIntervalInput').value, 10);
+      if (!Number.isFinite(val) || val < 5) {
+        alert('Scan interval must be at least 5 seconds.');
+        return;
+      }
+      await this._ws('power_manager/set_scan_interval', { scan_interval_seconds: val });
       await this._load();
     };
   }
@@ -729,7 +749,7 @@ class PowerManagerPanel extends HTMLElement {
         <td style="white-space:nowrap">
           <span class="status-dot dot-actual ${actualDotClass}" title="${this._esc(actualTitle)}"
                 data-live-switch="${this._esc(c.switch_entity)}"
-                style="vertical-align:middle;margin-right:4px"></span><input data-k="switch" list="switchEntitiesList" value="${this._esc(c.switch_entity)}" placeholder="switch.xxx" style="width:calc(100% - 18px);display:inline-block;vertical-align:middle" /></td>
+                style="vertical-align:middle;margin-right:4px"></span><input data-k="switch" list="switchEntitiesList" value="${this._esc(c.switch_entity)}" placeholder="switch.xxx" style="width:250px;display:inline-block;vertical-align:middle" /></td>
         <td><input data-k="power" list="sensorEntitiesList" value="${this._esc(c.power_entity)}" placeholder="sensor.xxx" /></td>
         <td style="text-align:right;padding-right:10px" data-live-watt="${this._esc(c.power_entity)}">${displayW}</td>
         <td><input data-k="priority" type="number" value="${c.priority ?? 1}" /></td>
