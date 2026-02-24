@@ -603,7 +603,6 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for c in sorted_consumers:
                 name = c["name"]
                 expected = float(c.get("expected_power", 0))
-                min_run_minutes = float(c.get("min_run_minutes", 0))
                 runtime = self._runtime.setdefault(name, ConsumerRuntime())
                 current_power = self._state_float(c.get("power_entity", ""))
                 currently_on = runtime.is_on
