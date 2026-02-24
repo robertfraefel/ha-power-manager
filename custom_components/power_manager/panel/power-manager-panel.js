@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.17';
+const PANEL_VERSION = '0.2.18';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -222,12 +222,12 @@ class PowerManagerPanel extends HTMLElement {
         /* Inputs inside tables — compact */
         td input, td select { padding: 3px 5px; min-width: 0; width: 100%; box-sizing: border-box; font-size: 12px; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--primary-background-color); color: var(--primary-text-color); }
         td input[type=number] { width: 62px; }
-        td input[list] { width: 155px; }
+        td input[list] { width: 240px; }
         td select { width: 105px; }
         /* "Add" row inputs */
         .add-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding-top: 8px; border-top: 1px solid var(--divider-color); margin-top: 2px; }
         .add-row input, .add-row select { padding: 5px 7px; min-width: 0; font-size: 12px; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--primary-background-color); color: var(--primary-text-color); }
-        .add-row input[list] { width: 170px; }
+        .add-row input[list] { width: 220px; }
         .add-row input[type=number] { width: 80px; }
         .add-row input:not([list]):not([type=number]) { width: 110px; }
         /* Buttons */

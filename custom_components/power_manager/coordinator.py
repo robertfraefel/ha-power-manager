@@ -96,6 +96,11 @@ STORAGE_VERSION = 1
 # This prevents rapid toggling when solar output fluctuates near the threshold.
 SURPLUS_HYSTERESIS_FACTOR = 0.05  # 5 %
 
+# Number of update cycles to observe before making any switch decisions after
+# startup.  Prevents consumers from being switched on immediately after a HA
+# reboot when entity states may not yet reflect actual hardware conditions.
+STARTUP_WARMUP_CYCLES = 2
+
 
 @dataclass
 class ConsumerRuntime:
@@ -144,6 +149,9 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             c["name"]: ConsumerRuntime() for c in self._consumers
         }
         self.running: bool = True
+        # Counts down from STARTUP_WARMUP_CYCLES to 0; consumer switching is
+        # deferred while > 0 so HA has time to settle entity states after reboot.
+        self._warmup_remaining: int = STARTUP_WARMUP_CYCLES
 
         # Fixed storage key — not tied to entry_id so config survives
         # remove-and-re-add of the integration during updates.
@@ -644,24 +652,37 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "current_power": current_power,
                 })
 
+            # Startup warmup: defer all switch commands for the first
+            # STARTUP_WARMUP_CYCLES cycles so HA entity states can settle
+            # after a reboot before the coordinator makes any decisions.
+            warming_up = self._warmup_remaining > 0
+            if warming_up:
+                self._warmup_remaining -= 1
+                _LOGGER.debug(
+                    "Startup warmup: %d cycle(s) remaining — consumer switching deferred",
+                    self._warmup_remaining,
+                )
+
             # Phase 2: turn OFF in reverse priority order (lowest priority off first).
-            for d in reversed(decisions):
-                if d["skip_switch"] or d["should_on"]:
-                    continue
-                if d["runtime"].on_until_ts <= now:
-                    await self._set_switch(d["c"]["switch_entity"], False)
+            if not warming_up:
+                for d in reversed(decisions):
+                    if d["skip_switch"] or d["should_on"]:
+                        continue
+                    if d["runtime"].on_until_ts <= now:
+                        await self._set_switch(d["c"]["switch_entity"], False)
 
             # Phase 3: turn ON in forward priority order (highest priority on first).
-            for d in decisions:
-                if d["skip_switch"] or not d["should_on"]:
-                    continue
-                runtime = d["runtime"]
-                await self._set_switch(d["c"]["switch_entity"], True)
-                if d["extend_timer"]:
-                    # Arm the min-runtime lock from the moment of turn-on.
-                    # Only set once per turn-on (extend_timer is False while
-                    # already running), so the timer counts down naturally.
-                    runtime.on_until_ts = now + float(d["c"].get("min_run_minutes", 0)) * 60
+            if not warming_up:
+                for d in decisions:
+                    if d["skip_switch"] or not d["should_on"]:
+                        continue
+                    runtime = d["runtime"]
+                    await self._set_switch(d["c"]["switch_entity"], True)
+                    if d["extend_timer"]:
+                        # Arm the min-runtime lock from the moment of turn-on.
+                        # Only set once per turn-on (extend_timer is False while
+                        # already running), so the timer counts down naturally.
+                        runtime.on_until_ts = now + float(d["c"].get("min_run_minutes", 0)) * 60
 
             # Phase 4: update runtime state and build consumer_states.
             for d in decisions:
