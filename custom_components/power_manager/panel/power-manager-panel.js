@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.23';
+const PANEL_VERSION = '0.2.24';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -685,8 +685,11 @@ class PowerManagerPanel extends HTMLElement {
           if (isOn) {
             if (remainingSurplus >= turnOffThreshold) {
               reason = `running (${remainingSurplus.toFixed(0)}W surplus)`;
+            } else if (onUntil > nowTs) {
+              reason = 'min-run hold';  // timer still counting down
             } else {
-              reason = 'min-run hold';
+              // Timer expired but consumer still ON (e.g. waiting for incremental shed).
+              reason = `surplus low (${remainingSurplus.toFixed(0)}W)`;
             }
             // No deduction — draw already reflected in base_load.
           } else {
