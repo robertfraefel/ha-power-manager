@@ -415,12 +415,16 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             min_run_minutes: Minimum on-time per cycle to protect appliances (min).
 
         Raises:
-            UpdateFailed: If a consumer with this name already exists.
+            UpdateFailed: If a consumer with this name already exists or
+                          the priority is already in use.
         """
         if not name.strip():
             raise UpdateFailed("consumer name cannot be empty")
         if self._find_idx_by_name(self._consumers, name) >= 0:
             raise UpdateFailed(f"consumer already exists: {name}")
+        existing_priorities = {int(c.get("priority", 999)) for c in self._consumers}
+        if int(priority) in existing_priorities:
+            raise UpdateFailed(f"priority {priority} is already used by another consumer")
         self._consumers.append(
             {
                 "name": name,
@@ -486,6 +490,13 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if power_entity is not None:
             c["power_entity"] = power_entity
         if priority is not None:
+            existing_priorities = {
+                int(other.get("priority", 999))
+                for other in self._consumers
+                if other.get("name") != name
+            }
+            if int(priority) in existing_priorities:
+                raise UpdateFailed(f"priority {priority} is already used by another consumer")
             c["priority"] = int(priority)
         if expected_power is not None:
             c["expected_power"] = float(expected_power)
