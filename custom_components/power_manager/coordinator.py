@@ -724,22 +724,25 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
             # Phase 2: turn OFF in reverse priority order (lowest priority off first).
-            # At most one consumer is shed per cycle.  After shedding the lowest-
-            # priority consumer the remaining OFF-candidates are deferred: their
-            # runtime.is_on is kept True so the next measurement cycle evaluates
-            # them with the updated (higher) surplus before deciding whether
-            # further shedding is needed.  This prevents unnecessarily cycling
-            # high-priority consumers when shedding a lower-priority one suffices.
+            # At most one *active* consumer is shed per cycle.  After shedding the
+            # lowest-priority ON consumer the remaining ON-candidates are deferred:
+            # their runtime.is_on is kept True so the next measurement cycle
+            # evaluates them with the updated (higher) surplus before deciding
+            # whether further shedding is needed.  This prevents unnecessarily
+            # cycling high-priority consumers when shedding a lower one suffices.
+            #
+            # Consumers that are already OFF (runtime.is_on=False) are corrected
+            # unconditionally but do NOT consume the one-shed-per-cycle slot —
+            # otherwise a lower-priority consumer that is already off would block
+            # shedding of a higher-priority consumer that is still running.
             if not warming_up:
                 shed_done = False
                 for d in reversed(decisions):
                     if d["skip_switch"] or d["should_on"]:
                         continue
                     if d["runtime"].on_until_ts <= now:
-                        if not shed_done:
-                            await self._set_switch(d["c"]["switch_entity"], False)
-                            shed_done = True
-                        else:
+                        was_on = d["runtime"].is_on
+                        if was_on and shed_done:
                             # Defer to next cycle — preserve ON state for hysteresis.
                             d["should_on"] = True
                             d["skip_switch"] = True
@@ -747,6 +750,10 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 "Consumer %r OFF deferred: waiting for surplus to settle after shed",
                                 d["c"]["name"],
                             )
+                        else:
+                            await self._set_switch(d["c"]["switch_entity"], False)
+                            if was_on:
+                                shed_done = True
 
             # Phase 3: turn ON in forward priority order (highest priority on first).
             if not warming_up:
