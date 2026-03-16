@@ -493,7 +493,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             existing_priorities = {
                 int(other.get("priority", 999))
                 for other in self._consumers
-                if other.get("name") != name
+                if other is not c  # identity check — safe even after rename
             }
             if int(priority) in existing_priorities:
                 raise UpdateFailed(f"priority {priority} is already used by another consumer")
