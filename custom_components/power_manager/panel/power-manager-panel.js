@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.26';
+const PANEL_VERSION = '0.2.27';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -49,6 +49,25 @@ class PowerManagerPanel extends HTMLElement {
       // Tracks in-progress field edits so poll-timer re-renders never clobber them.
       this._pendingEdits = {};
       this._pendingProdEdits = {};
+      this._editing = false;
+      // Track whether the user is editing any input/select.  focusin/focusout
+      // bubble reliably even across HA's shadow-DOM boundaries, unlike
+      // document.activeElement or :focus which can fail in custom panels.
+      this.addEventListener('focusin', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
+          this._editing = true;
+        }
+      });
+      this.addEventListener('focusout', () => {
+        // Brief delay so tabbing between inputs doesn't flicker _editing off/on.
+        setTimeout(() => {
+          try {
+            if (!this.querySelector(':focus')) this._editing = false;
+          } catch (_) {
+            this._editing = false;
+          }
+        }, 150);
+      });
       this._renderShell();
       this._bind();
       this._initialized = true;
@@ -436,18 +455,12 @@ class PowerManagerPanel extends HTMLElement {
         this._lightTimer = setInterval(() => { if (this._data) this._updateLiveValues(); }, 2000);
       }
 
-      // Detect whether the user is currently editing any input/select inside
-      // this component.  Uses document.activeElement (more reliable than :focus
-      // in HA's custom-element environment).  When editing, we skip disruptive
-      // DOM updates (datalist rewrites, section re-renders) so the cursor stays
-      // in place and the entity dropdown is not destroyed mid-selection.
-      const active = document.activeElement;
-      const editing = active && this.contains(active)
-        && (active.tagName === 'INPUT' || active.tagName === 'SELECT');
-
-      // Refresh entity datalists — but only when the user is not editing,
-      // because rewriting a <datalist> closes its dropdown.
-      if (!editing) {
+      // When the user is editing (tracked via focusin/focusout listeners),
+      // skip all disruptive DOM updates: datalist rewrites and section
+      // re-renders.  Summary tiles still update (no editable inputs there).
+      // Everything catches up on the next poll after the user saves or
+      // clicks away.
+      if (!this._editing) {
         const [sensorEntities, switchEntities] = await Promise.all([
           this._entitiesByDomain('sensor'),
           this._entitiesByDomain('switch'),
@@ -460,12 +473,11 @@ class PowerManagerPanel extends HTMLElement {
 
       this._renderSummary(data);
 
-      // Skip re-rendering a section if the user is editing inside it —
-      // the section will catch up on the next poll after the user saves or
-      // clicks away.
-      if (!editing || !this.querySelector('#baseRows')?.contains(active)) this._renderBaseLoad(data);
-      if (!editing || !this.querySelector('#prodRows')?.contains(active)) this._renderProducers(data);
-      if (!editing || !this.querySelector('#consRows')?.contains(active)) this._renderConsumers(data);
+      if (!this._editing) {
+        this._renderBaseLoad(data);
+        this._renderProducers(data);
+        this._renderConsumers(data);
+      }
     } finally {
       // Always clear the guard — even if a render function throws,
       // the next _load() call must not silently become a no-op.
