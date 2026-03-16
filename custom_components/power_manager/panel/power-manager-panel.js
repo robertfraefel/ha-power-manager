@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.24';
+const PANEL_VERSION = '0.2.25';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -447,9 +447,18 @@ class PowerManagerPanel extends HTMLElement {
         .map((v) => `<option value="${v}"></option>`).join('');
 
       this._renderSummary(data);
-      this._renderBaseLoad(data);
-      this._renderProducers(data);
-      this._renderConsumers(data);
+
+      // Skip re-rendering a section if the user is actively editing an input
+      // inside it — otherwise the DOM replacement kills the datalist dropdown
+      // and overwrites in-progress changes.
+      const active = this.querySelector(':focus');
+      const baseSection = this.querySelector('#baseRows');
+      const prodSection = this.querySelector('#prodRows');
+      const consSection = this.querySelector('#consRows');
+
+      if (!active || !baseSection?.contains(active)) this._renderBaseLoad(data);
+      if (!active || !prodSection?.contains(active)) this._renderProducers(data);
+      if (!active || !consSection?.contains(active)) this._renderConsumers(data);
     } finally {
       // Always clear the guard — even if a render function throws,
       // the next _load() call must not silently become a no-op.
