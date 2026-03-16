@@ -621,12 +621,15 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 should_on = False
                 extend_timer = False
                 skip_switch = False  # True for deactivated or paused
+                reason = ""
 
                 if not self.running:
                     skip_switch = True
+                    reason = "stopped"
                 elif runtime.mode == MODE_DEACTIVATED:
                     runtime.is_on = False
                     skip_switch = True
+                    reason = "deactivated"
                     _LOGGER.debug("Consumer %r: deactivated – skipped", name)
                 else:
                     reason = "off: insufficient surplus"
@@ -679,6 +682,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "extend_timer": extend_timer,
                     "skip_switch": skip_switch,
                     "current_power": current_power,
+                    "reason": reason,
                 })
 
             # Phase 1.5: Priority preemption.
@@ -707,6 +711,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             and int(d["c"].get("priority", 999)) > auto_off_min_priority
                         ):
                             d["should_on"] = False
+                            d["reason"] = f"preempted (P{auto_off_min_priority} needs surplus)"
                             _LOGGER.debug(
                                 "Consumer %r preempted: P%d needs surplus first",
                                 d["c"]["name"], auto_off_min_priority,
@@ -746,6 +751,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             # Defer to next cycle — preserve ON state for hysteresis.
                             d["should_on"] = True
                             d["skip_switch"] = True
+                            d["reason"] = "deferred (shedding in progress)"
                             _LOGGER.debug(
                                 "Consumer %r OFF deferred: waiting for surplus to settle after shed",
                                 d["c"]["name"],
@@ -781,6 +787,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "on_until": unix_now + remaining_secs,  # Unix time, comparable to Date.now()/1000
                     "switch_entity": c["switch_entity"],
                     "is_on": runtime.is_on,
+                    "reason": d["reason"],
                 }
 
             return {
