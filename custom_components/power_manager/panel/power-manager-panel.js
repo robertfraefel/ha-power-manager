@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.27';
+const PANEL_VERSION = '0.2.28';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -45,36 +45,44 @@ class PowerManagerPanel extends HTMLElement {
    */
   connectedCallback() {
     if (!this._initialized) {
-      // Persistent edit maps: keyed by consumer/producer name, cleared on save.
-      // Tracks in-progress field edits so poll-timer re-renders never clobber them.
-      this._pendingEdits = {};
-      this._pendingProdEdits = {};
-      this._editing = false;
-      // Track whether the user is editing any input/select.  focusin/focusout
-      // bubble reliably even across HA's shadow-DOM boundaries, unlike
-      // document.activeElement or :focus which can fail in custom panels.
-      this.addEventListener('focusin', (e) => {
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
-          this._editing = true;
-        }
-      });
-      this.addEventListener('focusout', () => {
-        // Brief delay so tabbing between inputs doesn't flicker _editing off/on.
-        setTimeout(() => {
-          try {
-            if (!this.querySelector(':focus')) this._editing = false;
-          } catch (_) {
-            this._editing = false;
-          }
-        }, 150);
-      });
-      this._renderShell();
-      this._bind();
-      this._initialized = true;
+      this._initOnce();
     } else if (!this._pollTimer) {
       // User navigated away (which cleared the timer) and came back
       this._load();
     }
+  }
+
+  /**
+   * One-time initialisation shared by connectedCallback and set hass().
+   * HA may call set hass() before connectedCallback(), so whichever
+   * fires first performs the full setup.
+   */
+  _initOnce() {
+    // Persistent edit maps: keyed by consumer/producer name, cleared on save.
+    this._pendingEdits = this._pendingEdits || {};
+    this._pendingProdEdits = this._pendingProdEdits || {};
+    this._editing = false;
+    // Track whether the user is editing any input/select.  focusin/focusout
+    // bubble reliably even across HA's shadow-DOM boundaries, unlike
+    // document.activeElement or :focus which can fail in custom panels.
+    this.addEventListener('focusin', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
+        this._editing = true;
+      }
+    });
+    this.addEventListener('focusout', () => {
+      // Brief delay so tabbing between inputs doesn't flicker _editing off/on.
+      setTimeout(() => {
+        try {
+          if (!this.querySelector(':focus')) this._editing = false;
+        } catch (_) {
+          this._editing = false;
+        }
+      }, 150);
+    });
+    this._renderShell();
+    this._bind();
+    this._initialized = true;
   }
 
   /**
@@ -103,13 +111,7 @@ class PowerManagerPanel extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._initialized) {
-      // HA may call set hass() before connectedCallback(), so initialise the
-      // edit maps here too — otherwise _renderProducers/_renderConsumers crash.
-      this._pendingEdits = this._pendingEdits || {};
-      this._pendingProdEdits = this._pendingProdEdits || {};
-      this._renderShell();
-      this._bind();
-      this._initialized = true;
+      this._initOnce();
       this._load();
     } else if (this._data) {
       // Light update: refresh entity-based live values without a WS round-trip
