@@ -74,7 +74,9 @@ Entity states (sensor readings, switch states) are also read **directly** by the
 
 4. **Minimum runtime** — Once a consumer is switched ON it stays on for at least `min_run_minutes` regardless of surplus changes.
 
-5. **Consumer modes**
+5. **Turn-on cooldown** — After a consumer is switched ON, the coordinator waits 5 minutes (`TURN_ON_COOLDOWN_SECONDS = 300`) before switching ON the next consumer. This gives the smart meter / base-load sensor time to reflect the new load. Without this delay the coordinator would see stale surplus values and potentially switch on too many consumers at once. Consumers that are already running are not affected by the cooldown — only fresh OFF → ON transitions are delayed.
+
+6. **Consumer modes**
 
    | Mode | Behaviour |
    |------|-----------|
@@ -83,7 +85,7 @@ Entity states (sensor readings, switch states) are also read **directly** by the
    | `force_off` | Always OFF |
    | `deactivated` | Excluded entirely — switch is not touched, surplus not deducted |
 
-6. **Persistence** — All configuration (producers, consumers, modes, running state) is stored in HA's `.storage/power_manager_<entry_id>` file. This file is **not** part of the integration code, so it survives code updates from GitHub or HACS.
+7. **Persistence** — All configuration (producers, consumers, modes, running state) is stored in HA's `.storage/power_manager_<entry_id>` file. This file is **not** part of the integration code, so it survives code updates from GitHub or HACS.
 
 ---
 

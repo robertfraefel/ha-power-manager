@@ -59,11 +59,14 @@ def _make_coordinator(
     # Manually populate what __init__ would have set.
     coord.hass = hass
     coord._base_load_entity = "sensor.base_load"
+    coord._base_load_name = "Base load"
     coord._producers = list(producers or [])
     coord._consumers = list(consumers or [])
     coord._runtime = {c["name"]: ConsumerRuntime() for c in (consumers or [])}
     coord.running = running
     coord.update_interval = timedelta(seconds=10)
+    coord._warmup_remaining = 0
+    coord._last_turn_on_ts = 0.0
     coord._store = MagicMock()
     coord._store.async_save = AsyncMock()
     coord.async_request_refresh = AsyncMock()
@@ -188,10 +191,14 @@ class TestSurplusAllocation:
 
         self._run(coord._async_update_data())
 
-        calls = {c.args[1]: c.args[0] for c in hass.services.async_call.await_args_list}
-        assert calls.get("turn_on") == "homeassistant"
-        on_entity = hass.services.async_call.await_args_list[0].args[2]["entity_id"]
-        assert on_entity == "switch.a"
+        # Phase 2 may issue corrective turn_off calls for already-OFF consumers.
+        # Filter to only turn_on calls to verify priority ordering.
+        on_calls = [
+            c for c in hass.services.async_call.await_args_list
+            if c.args[1] == "turn_on"
+        ]
+        assert len(on_calls) == 1
+        assert on_calls[0].args[2]["entity_id"] == "switch.a"
 
     def test_force_on_ignores_surplus(self):
         from custom_components.power_manager.const import MODE_FORCE_ON
@@ -332,16 +339,19 @@ class TestSurplusAllocation:
         )
 
     def test_hysteresis_turns_off_below_lower_threshold(self):
-        # Consumer is ON. Surplus drops to 460W.
-        # Lower threshold = 500 * 0.95 = 475W → 460W < 475W → should turn off.
+        # Consumer is ON drawing 500W.  Surplus = -60W.
+        # Stay-on threshold = -(500 * 0.05) = -25W.
+        # -60W < -25W → deficit too large → should turn off.
         from custom_components.power_manager.coordinator import ConsumerRuntime
 
         states = {
-            "sensor.base_load": _make_state("540", "W"),
-            "sensor.pv": _make_state("1000", "W"),  # surplus = 460W
+            "sensor.base_load": _make_state("1060", "W"),
+            "sensor.pv": _make_state("1000", "W"),  # surplus = -60W
+            "sensor.boiler_power": _make_state("500", "W"),
         }
         producers = [{"name": "PV", "entity_id": "sensor.pv"}]
-        consumers = [self._consumer("Boiler", expected_power=500.0)]
+        consumers = [self._consumer("Boiler", expected_power=500.0,
+                                    power_entity="sensor.boiler_power")]
         hass = _make_hass(states=states)
         coord = _make_coordinator(hass, producers=producers, consumers=consumers)
         coord._runtime["Boiler"] = ConsumerRuntime(is_on=True)

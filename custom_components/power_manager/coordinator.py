@@ -104,6 +104,12 @@ SURPLUS_HYSTERESIS_FACTOR = 0.05  # 5 %
 # reboot when entity states may not yet reflect actual hardware conditions.
 STARTUP_WARMUP_CYCLES = 2
 
+# Cooldown period (seconds) after a consumer is turned ON before the
+# coordinator will turn ON the next consumer.  Gives the smart meter /
+# base-load sensor time to reflect the new load — without this, the surplus
+# still looks high and the coordinator may turn on too many consumers at once.
+TURN_ON_COOLDOWN_SECONDS = 300  # 5 minutes
+
 
 @dataclass
 class ConsumerRuntime:
@@ -155,6 +161,10 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Counts down from STARTUP_WARMUP_CYCLES to 0; consumer switching is
         # deferred while > 0 so HA has time to settle entity states after reboot.
         self._warmup_remaining: int = STARTUP_WARMUP_CYCLES
+        # Monotonic timestamp of the last fresh consumer turn-on.  Used by the
+        # turn-on cooldown to prevent cascading turn-ons before the smart meter
+        # has had time to reflect the new load.
+        self._last_turn_on_ts: float = 0.0
 
         # Fixed storage key — not tied to entry_id so config survives
         # remove-and-re-add of the integration during updates.
@@ -657,9 +667,18 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             if currently_on
                             else expected * (1.0 + SURPLUS_HYSTERESIS_FACTOR)
                         )
-                        if remaining_surplus >= threshold:
+                        cooldown_left = self._last_turn_on_ts + TURN_ON_COOLDOWN_SECONDS - now
+                        if remaining_surplus >= threshold and currently_on:
+                            # Already ON — keep running (no cooldown for stay-on).
                             should_on = True
-                            extend_timer = not currently_on  # arm on OFF→ON transition only
+                            reason = f"on: surplus {remaining_surplus:.1f}W >= {threshold:.1f}W"
+                        elif remaining_surplus >= threshold and cooldown_left > 0:
+                            # Surplus OK but cooldown active — wait for smart meter.
+                            reason = f"off: cooldown ({cooldown_left:.0f}s left)"
+                        elif remaining_surplus >= threshold:
+                            # Surplus OK, cooldown expired — turn on.
+                            should_on = True
+                            extend_timer = True
                             reason = f"on: surplus {remaining_surplus:.1f}W >= {threshold:.1f}W"
                         elif runtime.on_until_ts > now:
                             # Min-runtime protection: surplus dropped before timer elapsed.
@@ -773,6 +792,8 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         # Only set once per turn-on (extend_timer is False while
                         # already running), so the timer counts down naturally.
                         runtime.on_until_ts = now + float(d["c"].get("min_run_minutes", 0)) * 60
+                        # Record turn-on timestamp for the global cooldown.
+                        self._last_turn_on_ts = now
 
             # Phase 4: update runtime state and build consumer_states.
             for d in decisions:
