@@ -779,6 +779,13 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             await self._set_switch(d["c"]["switch_entity"], False)
                             if was_on:
                                 shed_done = True
+                                _LOGGER.info(
+                                    "Consumer %r (P%s) turned OFF — %s | surplus=%.0fW",
+                                    d["c"]["name"],
+                                    d["c"].get("priority", "?"),
+                                    d["reason"],
+                                    surplus,
+                                )
 
             # Phase 3: turn ON in forward priority order (highest priority on first).
             if not warming_up:
@@ -791,9 +798,19 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         # Arm the min-runtime lock from the moment of turn-on.
                         # Only set once per turn-on (extend_timer is False while
                         # already running), so the timer counts down naturally.
-                        runtime.on_until_ts = now + float(d["c"].get("min_run_minutes", 0)) * 60
+                        min_run = float(d["c"].get("min_run_minutes", 0))
+                        runtime.on_until_ts = now + min_run * 60
                         # Record turn-on timestamp for the global cooldown.
                         self._last_turn_on_ts = now
+                        _LOGGER.info(
+                            "Consumer %r (P%s) turned ON — %s | surplus=%.0fW, min_run=%.0fmin, cooldown=%ds",
+                            d["c"]["name"],
+                            d["c"].get("priority", "?"),
+                            d["reason"],
+                            surplus,
+                            min_run,
+                            TURN_ON_COOLDOWN_SECONDS,
+                        )
 
             # Phase 4: update runtime state and build consumer_states.
             for d in decisions:
