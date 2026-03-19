@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.28';
+const PANEL_VERSION = '0.2.29';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -854,4 +854,6 @@ class PowerManagerPanel extends HTMLElement {
   }
 }
 
-customElements.define('power-manager-panel', PowerManagerPanel);
+if (!customElements.get('power-manager-panel')) {
+  customElements.define('power-manager-panel', PowerManagerPanel);
+}
