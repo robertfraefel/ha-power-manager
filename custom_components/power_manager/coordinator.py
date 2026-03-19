@@ -780,10 +780,12 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             if was_on:
                                 shed_done = True
                                 _LOGGER.info(
-                                    "Consumer %r (P%s) turned OFF — %s | surplus=%.0fW",
+                                    "Consumer %r (P%s) turned OFF — %s | production=%.0fW, base_load=%.0fW, surplus=%.0fW",
                                     d["c"]["name"],
                                     d["c"].get("priority", "?"),
                                     d["reason"],
+                                    total_production,
+                                    base_load,
                                     surplus,
                                 )
 
@@ -803,10 +805,12 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         # Record turn-on timestamp for the global cooldown.
                         self._last_turn_on_ts = now
                         _LOGGER.info(
-                            "Consumer %r (P%s) turned ON — %s | surplus=%.0fW, min_run=%.0fmin, cooldown=%ds",
+                            "Consumer %r (P%s) turned ON — %s | production=%.0fW, base_load=%.0fW, surplus=%.0fW, min_run=%.0fmin, cooldown=%ds",
                             d["c"]["name"],
                             d["c"].get("priority", "?"),
                             d["reason"],
+                            total_production,
+                            base_load,
                             surplus,
                             min_run,
                             TURN_ON_COOLDOWN_SECONDS,
