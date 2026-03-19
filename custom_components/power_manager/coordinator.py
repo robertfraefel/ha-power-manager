@@ -779,7 +779,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             await self._set_switch(d["c"]["switch_entity"], False)
                             if was_on:
                                 shed_done = True
-                                _LOGGER.info(
+                                _LOGGER.warning(
                                     "Consumer %r (P%s) turned OFF — %s | production=%.0fW, base_load=%.0fW, surplus=%.0fW",
                                     d["c"]["name"],
                                     d["c"].get("priority", "?"),
@@ -804,7 +804,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         runtime.on_until_ts = now + min_run * 60
                         # Record turn-on timestamp for the global cooldown.
                         self._last_turn_on_ts = now
-                        _LOGGER.info(
+                        _LOGGER.warning(
                             "Consumer %r (P%s) turned ON — %s | production=%.0fW, base_load=%.0fW, surplus=%.0fW, min_run=%.0fmin, cooldown=%ds",
                             d["c"]["name"],
                             d["c"].get("priority", "?"),
