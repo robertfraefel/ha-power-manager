@@ -511,3 +511,390 @@ class TestCooldown:
         self._run(coord._async_update_data())
 
         assert coord._last_turn_on_cooldown == DEFAULT_COOLDOWN_SECONDS
+
+
+# ---------------------------------------------------------------------------
+# Helper shared across new test classes
+# ---------------------------------------------------------------------------
+
+def _consumer(name, priority=1, expected_power=500.0, cooldown_seconds=300, **kw):
+    return {
+        "name": name,
+        "switch_entity": kw.get("switch_entity", f"switch.{name.lower().replace(' ', '_')}"),
+        "power_entity": kw.get("power_entity", f"sensor.{name.lower().replace(' ', '_')}_power"),
+        "priority": priority,
+        "expected_power": expected_power,
+        "min_run_minutes": kw.get("min_run_minutes", 0),
+        "cooldown_seconds": cooldown_seconds,
+    }
+
+
+def _run(coro):
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+# ---------------------------------------------------------------------------
+# Priority Preemption (Phase 1.5)
+# ---------------------------------------------------------------------------
+
+class TestPriorityPreemption:
+    """Tests for Phase 1.5: lower-priority consumers are preempted when
+    a higher-priority consumer cannot get surplus."""
+
+    def test_lower_priority_preempted_for_higher(self):
+        """P3 ON should be preempted when P1 cannot turn on."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+
+        now = 1000.0
+        # P3 is ON (4000W draw included in base_load of 4700W).
+        # Surplus = 5250 - 4700 = 550W.  P1 needs 630W → can't turn on.
+        states = {
+            "sensor.base_load": _make_state("4700", "W"),
+            "sensor.pv": _make_state("5250", "W"),
+            "sensor.ev_power": _make_state("4000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [
+            _consumer("Boiler", priority=1, expected_power=600),
+            _consumer("EV", priority=3, expected_power=4000, power_entity="sensor.ev_power"),
+        ]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        # EV is ON (from previous force_on→auto switch), timer expired.
+        coord._runtime["EV"] = ConsumerRuntime(is_on=True)
+
+        result = _run(coord._async_update_data())
+
+        # EV should be preempted OFF.
+        assert result["consumer_states"]["EV"]["is_on"] is False
+        # Reason should mention preemption.
+        assert "preempted" in result["consumer_states"]["EV"]["reason"].lower()
+
+    def test_min_run_hold_exempt_from_preemption(self):
+        """A consumer in min-run hold should NOT be preempted."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("4700", "W"),
+            "sensor.pv": _make_state("5250", "W"),
+            "sensor.ev_power": _make_state("4000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [
+            _consumer("Boiler", priority=1, expected_power=600),
+            _consumer("EV", priority=3, expected_power=4000, power_entity="sensor.ev_power"),
+        ]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        # EV is ON with min-run hold still active (expires at now+60).
+        coord._runtime["EV"] = ConsumerRuntime(is_on=True, on_until_ts=now + 60)
+
+        result = _run(coord._async_update_data())
+
+        # EV should stay ON (protected by min-run hold).
+        assert result["consumer_states"]["EV"]["is_on"] is True
+
+    def test_force_on_not_preempted(self):
+        """force_on consumers should never be preempted."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+        from custom_components.power_manager.const import MODE_FORCE_ON
+
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("4700", "W"),
+            "sensor.pv": _make_state("5250", "W"),
+            "sensor.ev_power": _make_state("4000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [
+            _consumer("Boiler", priority=1, expected_power=600),
+            _consumer("EV", priority=3, expected_power=4000, power_entity="sensor.ev_power"),
+        ]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        coord._runtime["EV"] = ConsumerRuntime(is_on=True, mode=MODE_FORCE_ON)
+
+        result = _run(coord._async_update_data())
+
+        # EV stays ON — force_on overrides preemption.
+        assert result["consumer_states"]["EV"]["is_on"] is True
+
+
+# ---------------------------------------------------------------------------
+# Incremental Shedding (Phase 2)
+# ---------------------------------------------------------------------------
+
+class TestIncrementalShedding:
+    """Tests for Phase 2: at most one active consumer is shed per cycle."""
+
+    def test_only_one_consumer_shed_per_cycle(self):
+        """When both P1 and P2 need to turn off, only P2 (lower prio) is shed."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+
+        now = 1000.0
+        # Both ON, surplus deeply negative.
+        states = {
+            "sensor.base_load": _make_state("2000", "W"),
+            "sensor.pv": _make_state("1000", "W"),  # surplus = -1000W
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [
+            _consumer("Boiler", priority=1, expected_power=600),
+            _consumer("Washer", priority=2, expected_power=600),
+        ]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        coord._runtime["Boiler"] = ConsumerRuntime(is_on=True)
+        coord._runtime["Washer"] = ConsumerRuntime(is_on=True)
+
+        result = _run(coord._async_update_data())
+
+        # Washer (P2) shed, Boiler (P1) deferred — stays ON in runtime.
+        assert result["consumer_states"]["Washer"]["is_on"] is False
+        assert result["consumer_states"]["Boiler"]["is_on"] is True
+
+    def test_deferred_consumer_preserves_runtime_is_on(self):
+        """A deferred consumer's runtime.is_on stays True for next-cycle hysteresis."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("2000", "W"),
+            "sensor.pv": _make_state("1000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [
+            _consumer("Boiler", priority=1, expected_power=600),
+            _consumer("Washer", priority=2, expected_power=600),
+        ]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        coord._runtime["Boiler"] = ConsumerRuntime(is_on=True)
+        coord._runtime["Washer"] = ConsumerRuntime(is_on=True)
+
+        _run(coord._async_update_data())
+
+        # Boiler was deferred → runtime.is_on must still be True.
+        assert coord._runtime["Boiler"].is_on is True
+
+    def test_already_off_consumer_does_not_consume_shed_slot(self):
+        """An already-OFF consumer must not block shedding of ON consumers.
+        This was a real bug: P3 (OFF) consumed the shed slot, P2 (ON) was deferred."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("2000", "W"),
+            "sensor.pv": _make_state("1000", "W"),  # surplus = -1000W
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [
+            _consumer("Boiler", priority=1, expected_power=600),
+            _consumer("Washer", priority=2, expected_power=600),
+            _consumer("EV", priority=3, expected_power=4000),
+        ]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        coord._runtime["Boiler"] = ConsumerRuntime(is_on=True)
+        coord._runtime["Washer"] = ConsumerRuntime(is_on=True)
+        # EV is already OFF (default is_on=False).
+
+        result = _run(coord._async_update_data())
+
+        # Washer (P2) should be shed — NOT blocked by EV (P3, already off).
+        assert result["consumer_states"]["Washer"]["is_on"] is False
+        # Boiler (P1) deferred — stays ON.
+        assert result["consumer_states"]["Boiler"]["is_on"] is True
+
+
+# ---------------------------------------------------------------------------
+# Startup Warmup
+# ---------------------------------------------------------------------------
+
+class TestStartupWarmup:
+    """Tests for startup warmup: no switching for the first N cycles."""
+
+    def test_warmup_skips_switching(self):
+        """During warmup, no switch calls are made even with surplus."""
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [_consumer("Boiler", priority=1, expected_power=500)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        coord._warmup_remaining = 2  # 2 cycles to go
+
+        _run(coord._async_update_data())
+
+        # No switch calls during warmup.
+        hass.services.async_call.assert_not_awaited()
+        assert coord._warmup_remaining == 1
+
+    def test_warmup_counts_down_to_zero(self):
+        """Warmup counter decrements each cycle and switching starts at zero."""
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [_consumer("Boiler", priority=1, expected_power=500)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        coord._warmup_remaining = 1  # last warmup cycle
+
+        # Cycle 1: still warming up.
+        _run(coord._async_update_data())
+        hass.services.async_call.assert_not_awaited()
+        assert coord._warmup_remaining == 0
+
+        # Cycle 2: warmup done → switching happens.
+        hass.services.async_call.reset_mock()
+        _run(coord._async_update_data())
+        assert hass.services.async_call.await_count > 0
+
+
+# ---------------------------------------------------------------------------
+# Priority Uniqueness
+# ---------------------------------------------------------------------------
+
+class TestPriorityUniqueness:
+    """Tests for priority uniqueness validation on add/update."""
+
+    def test_add_consumer_rejects_duplicate_priority(self):
+        from custom_components.power_manager.coordinator import PowerManagerCoordinator
+        from homeassistant.helpers.update_coordinator import UpdateFailed
+
+        now = 1000.0
+        states = {}
+        producers = []
+        consumers = [_consumer("Boiler", priority=1)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+
+        with pytest.raises(Exception, match="priority 1 is already used"):
+            _run(coord.async_add_consumer(
+                name="Washer",
+                switch_entity="switch.washer",
+                power_entity="sensor.washer_power",
+                priority=1,
+                expected_power=500,
+                min_run_minutes=0,
+            ))
+
+    def test_add_consumer_allows_unique_priority(self):
+        now = 1000.0
+        states = {}
+        producers = []
+        consumers = [_consumer("Boiler", priority=1)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+
+        # Should not raise.
+        _run(coord.async_add_consumer(
+            name="Washer",
+            switch_entity="switch.washer",
+            power_entity="sensor.washer_power",
+            priority=2,
+            expected_power=500,
+            min_run_minutes=0,
+        ))
+        assert len(coord._consumers) == 2
+
+    def test_update_consumer_same_priority_allowed(self):
+        """Saving a consumer with its own unchanged priority must not fail."""
+        now = 1000.0
+        states = {}
+        consumers = [
+            _consumer("Boiler", priority=1),
+            _consumer("Washer", priority=2),
+        ]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=[], consumers=consumers)
+
+        # Update Boiler with priority=1 (unchanged) — should not raise.
+        _run(coord.async_update_consumer(name="Boiler", priority=1))
+        assert coord._consumers[0]["priority"] == 1
+
+    def test_update_consumer_rejects_conflicting_priority(self):
+        now = 1000.0
+        consumers = [
+            _consumer("Boiler", priority=1),
+            _consumer("Washer", priority=2),
+        ]
+        hass = _make_hass(states={}, now=now)
+        coord = _make_coordinator(hass, producers=[], consumers=consumers)
+
+        with pytest.raises(Exception, match="priority 2 is already used"):
+            _run(coord.async_update_consumer(name="Boiler", priority=2))
+
+
+# ---------------------------------------------------------------------------
+# Reason field in consumer_states
+# ---------------------------------------------------------------------------
+
+class TestReasonField:
+    """Tests for the 'reason' field in consumer_states API response."""
+
+    def test_reason_present_in_consumer_states(self):
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [_consumer("Boiler", priority=1, expected_power=500)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+
+        result = _run(coord._async_update_data())
+
+        assert "reason" in result["consumer_states"]["Boiler"]
+        assert "surplus" in result["consumer_states"]["Boiler"]["reason"].lower()
+
+    def test_stopped_reason(self):
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [_consumer("Boiler", priority=1)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers, running=False)
+
+        result = _run(coord._async_update_data())
+
+        assert result["consumer_states"]["Boiler"]["reason"] == "stopped"
+
+    def test_cooldown_reason(self):
+        """Consumer blocked by cooldown should have a reason mentioning cooldown."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [
+            _consumer("Boiler", priority=1, expected_power=500, cooldown_seconds=300),
+            _consumer("Washer", priority=2, expected_power=500, cooldown_seconds=60),
+        ]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        coord._runtime["Boiler"] = ConsumerRuntime(is_on=True)
+        coord._last_turn_on_ts = now - 100
+        coord._last_turn_on_cooldown = 300.0
+
+        result = _run(coord._async_update_data())
+
+        assert "cooldown" in result["consumer_states"]["Washer"]["reason"].lower()
