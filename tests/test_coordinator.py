@@ -67,6 +67,7 @@ def _make_coordinator(
     coord.update_interval = timedelta(seconds=10)
     coord._warmup_remaining = 0
     coord._last_turn_on_ts = 0.0
+    coord._last_turn_on_cooldown = 300.0
     coord._store = MagicMock()
     coord._store.async_save = AsyncMock()
     coord.async_request_refresh = AsyncMock()
