@@ -290,6 +290,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
             "priority": vol.Coerce(int),
             "expected_power": vol.Coerce(float),
             "min_run_minutes": vol.Coerce(float),
+            vol.Optional("cooldown_seconds", default=300): vol.Coerce(float),
         }
     )
     @websocket_api.async_response
@@ -310,6 +311,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
             msg["priority"],
             msg["expected_power"],
             msg["min_run_minutes"],
+            msg.get("cooldown_seconds", 300),
         )
         connection.send_result(msg["id"], _config_payload(coordinator))
 
@@ -323,6 +325,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
             vol.Optional("priority"): vol.Coerce(int),
             vol.Optional("expected_power"): vol.Coerce(float),
             vol.Optional("min_run_minutes"): vol.Coerce(float),
+            vol.Optional("cooldown_seconds"): vol.Coerce(float),
             vol.Optional("mode"): str,
         }
     )
@@ -345,6 +348,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
             priority=msg.get("priority"),
             expected_power=msg.get("expected_power"),
             min_run_minutes=msg.get("min_run_minutes"),
+            cooldown_seconds=msg.get("cooldown_seconds"),
             mode=msg.get("mode"),
         )
         connection.send_result(msg["id"], _config_payload(coordinator))
@@ -460,6 +464,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 priority=call.data["priority"],
                 expected_power=call.data["expected_power"],
                 min_run_minutes=call.data["min_run_minutes"],
+                cooldown_seconds=call.data.get("cooldown_seconds", 300),
             )
 
     async def _update_consumer(call: ServiceCall) -> None:
@@ -473,6 +478,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 priority=call.data.get("priority"),
                 expected_power=call.data.get("expected_power"),
                 min_run_minutes=call.data.get("min_run_minutes"),
+                cooldown_seconds=call.data.get("cooldown_seconds"),
                 mode=call.data.get("mode"),
             )
 
@@ -665,6 +671,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 vol.Required("priority"): vol.All(int, vol.Range(min=1, max=999)),
                 vol.Required("expected_power"): vol.Coerce(float),
                 vol.Required("min_run_minutes"): vol.Coerce(float),
+                vol.Optional("cooldown_seconds", default=300): vol.Coerce(float),
             }
         ),
     )
@@ -680,6 +687,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 vol.Optional("priority"): vol.All(int, vol.Range(min=1, max=999)),
                 vol.Optional("expected_power"): vol.Coerce(float),
                 vol.Optional("min_run_minutes"): vol.Coerce(float),
+                vol.Optional("cooldown_seconds"): vol.Coerce(float),
                 vol.Optional("mode"): vol.In(VALID_MODES),
             }
         ),

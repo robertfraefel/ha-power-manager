@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.29';
+const PANEL_VERSION = '0.2.30';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -322,7 +322,7 @@ class PowerManagerPanel extends HTMLElement {
                 <tr>
                   <th style="width:44px"></th>
                   <th>Name</th><th>Switch entity</th><th>Power sensor entity</th><th>Current power in W</th>
-                  <th>Prio</th><th>Exp power in W</th><th>Min run time in min</th><th>Mode</th>
+                  <th>Prio</th><th>Exp power in W</th><th>Min run time in min</th><th>Cooldown in s</th><th>Mode</th>
                   <th>Decision</th><th style="width:110px"></th>
                 </tr>
               </thead>
@@ -353,6 +353,7 @@ class PowerManagerPanel extends HTMLElement {
             <input id="newConPrio" type="number" placeholder="Prio" />
             <input id="newConExpected" type="number" placeholder="Exp W" />
             <input id="newConMin" type="number" placeholder="Min min" />
+            <input id="newConCooldown" type="number" placeholder="Cooldown s" />
             <button id="addCon" class="btn-add">+ Add consumer</button>
           </div>
         </div>
@@ -397,6 +398,7 @@ class PowerManagerPanel extends HTMLElement {
       const priorityNum = Number(this.querySelector('#newConPrio').value);
       const expectedNum = Number(this.querySelector('#newConExpected').value);
       const minNum = Number(this.querySelector('#newConMin').value);
+      const cooldownNum = Number(this.querySelector('#newConCooldown').value);
       try {
         await this._ws('power_manager/add_consumer', {
           name: conName,
@@ -405,8 +407,9 @@ class PowerManagerPanel extends HTMLElement {
           priority: Number.isFinite(priorityNum) ? Math.round(priorityNum) : 1,
           expected_power: Number.isFinite(expectedNum) ? expectedNum : 0,
           min_run_minutes: Number.isFinite(minNum) ? minNum : 0,
+          cooldown_seconds: Number.isFinite(cooldownNum) ? cooldownNum : 300,
         });
-        ['#newConName', '#newConSwitch', '#newConPower', '#newConPrio', '#newConExpected', '#newConMin']
+        ['#newConName', '#newConSwitch', '#newConPower', '#newConPrio', '#newConExpected', '#newConMin', '#newConCooldown']
           .forEach((sel) => { this.querySelector(sel).value = ''; });
         await this._load();
       } catch (err) {
@@ -788,6 +791,7 @@ class PowerManagerPanel extends HTMLElement {
         <td><input data-k="priority" type="number" value="${c.priority ?? 1}" /></td>
         <td><input data-k="expected" type="number" value="${c.expected_power ?? 0}" /></td>
         <td><input data-k="min" type="number" value="${c.min_run_minutes ?? 0}" /></td>
+        <td><input data-k="cooldown" type="number" value="${c.cooldown_seconds ?? 300}" /></td>
         <td>
           <select data-k="mode">
             <option value="auto">auto</option>
@@ -826,6 +830,7 @@ class PowerManagerPanel extends HTMLElement {
         const priorityNum = Number(tr.querySelector('[data-k="priority"]').value);
         const expectedNum = Number(tr.querySelector('[data-k="expected"]').value);
         const minNum = Number(tr.querySelector('[data-k="min"]').value);
+        const cooldownNum = Number(tr.querySelector('[data-k="cooldown"]').value);
         const payload = {
           name: c.name,
           switch_entity: tr.querySelector('[data-k="switch"]').value.trim(),
@@ -833,6 +838,7 @@ class PowerManagerPanel extends HTMLElement {
           priority: Number.isFinite(priorityNum) ? Math.round(priorityNum) : Number(c.priority ?? 1),
           expected_power: Number.isFinite(expectedNum) ? expectedNum : Number(c.expected_power ?? 0),
           min_run_minutes: Number.isFinite(minNum) ? minNum : Number(c.min_run_minutes ?? 0),
+          cooldown_seconds: Number.isFinite(cooldownNum) ? cooldownNum : Number(c.cooldown_seconds ?? 300),
           mode: tr.querySelector('[data-k="mode"]').value,
         };
         if (newName && newName !== c.name) payload.new_name = newName;
