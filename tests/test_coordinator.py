@@ -362,3 +362,152 @@ class TestSurplusAllocation:
         hass.services.async_call.assert_awaited_once_with(
             "homeassistant", "turn_off", {"entity_id": "switch.boiler"}, blocking=True
         )
+
+
+class TestCooldown:
+    """Tests for per-consumer cooldown logic."""
+
+    @staticmethod
+    def _consumer(name, priority=1, expected_power=500.0, cooldown_seconds=300, **kw):
+        return {
+            "name": name,
+            "switch_entity": f"switch.{name.lower().replace(' ', '_')}",
+            "power_entity": kw.get("power_entity", f"sensor.{name.lower().replace(' ', '_')}_power"),
+            "priority": priority,
+            "expected_power": expected_power,
+            "min_run_minutes": kw.get("min_run_minutes", 0),
+            "cooldown_seconds": cooldown_seconds,
+        }
+
+    @staticmethod
+    def _run(coro):
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+    def test_only_one_consumer_turns_on_per_cycle(self):
+        """Phase 3 should turn on at most one fresh consumer per cycle."""
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [
+            self._consumer("Boiler", priority=1, cooldown_seconds=120),
+            self._consumer("Washer", priority=2, cooldown_seconds=60),
+        ]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+
+        self._run(coord._async_update_data())
+
+        calls = hass.services.async_call.await_args_list
+        on_calls = [c for c in calls if c.args[1] == "turn_on"]
+        assert len(on_calls) == 1, f"Expected 1 turn_on, got {len(on_calls)}"
+        assert on_calls[0].args[2]["entity_id"] == "switch.boiler"
+        assert coord._last_turn_on_cooldown == 120.0
+        assert coord._last_turn_on_ts == now
+
+    def test_cooldown_expired_allows_next_consumer(self):
+        """After cooldown expires, the next consumer can turn on."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [
+            self._consumer("Boiler", priority=1, cooldown_seconds=60),
+            self._consumer("Washer", priority=2, cooldown_seconds=60),
+        ]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        # Boiler already ON, cooldown expired 1s ago.
+        coord._runtime["Boiler"] = ConsumerRuntime(is_on=True)
+        coord._last_turn_on_ts = now - 61
+        coord._last_turn_on_cooldown = 60.0
+
+        self._run(coord._async_update_data())
+
+        calls = hass.services.async_call.await_args_list
+        on_calls = [c for c in calls if c.args[1] == "turn_on"]
+        # Boiler re-affirmed + Washer fresh turn-on = 2
+        assert len(on_calls) == 2
+
+    def test_cooldown_active_blocks_next_consumer(self):
+        """While cooldown is active, next consumer stays off despite surplus."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [
+            self._consumer("Boiler", priority=1, cooldown_seconds=300),
+            self._consumer("Washer", priority=2, cooldown_seconds=60),
+        ]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        # Boiler ON 100s ago, cooldown 300s → 200s remaining.
+        coord._runtime["Boiler"] = ConsumerRuntime(is_on=True)
+        coord._last_turn_on_ts = now - 100
+        coord._last_turn_on_cooldown = 300.0
+
+        result = self._run(coord._async_update_data())
+
+        calls = hass.services.async_call.await_args_list
+        on_calls = [c for c in calls if c.args[1] == "turn_on"]
+        assert len(on_calls) == 1  # only Boiler re-affirmed
+        assert on_calls[0].args[2]["entity_id"] == "switch.boiler"
+        assert result["consumer_states"]["Washer"]["is_on"] is False
+
+    def test_per_consumer_cooldown_uses_turned_on_consumers_value(self):
+        """The cooldown duration recorded is from the consumer that just turned on."""
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [
+            self._consumer("SmallDevice", priority=1, cooldown_seconds=30),
+        ]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+
+        self._run(coord._async_update_data())
+
+        assert coord._last_turn_on_cooldown == 30.0
+
+    def test_default_cooldown_when_field_missing(self):
+        """Consumers without cooldown_seconds use DEFAULT_COOLDOWN_SECONDS."""
+        from custom_components.power_manager.const import DEFAULT_COOLDOWN_SECONDS
+
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        # Consumer dict without cooldown_seconds (simulating old storage format).
+        consumers = [{
+            "name": "OldBoiler",
+            "switch_entity": "switch.old_boiler",
+            "power_entity": "sensor.old_boiler_power",
+            "priority": 1,
+            "expected_power": 500.0,
+            "min_run_minutes": 0,
+        }]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+
+        self._run(coord._async_update_data())
+
+        assert coord._last_turn_on_cooldown == DEFAULT_COOLDOWN_SECONDS
