@@ -790,20 +790,33 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 )
 
             # Phase 3: turn ON in forward priority order (highest priority on first).
+            # At most one fresh turn-on per cycle.  After turning on a consumer
+            # the cooldown is armed and remaining candidates are deferred so
+            # the smart meter has time to reflect the new load before the next
+            # consumer is started.  Already-running consumers (extend_timer=False)
+            # are re-affirmed without consuming the turn-on slot.
             if not warming_up:
+                turned_on_this_cycle = False
                 for d in decisions:
                     if d["skip_switch"] or not d["should_on"]:
                         continue
                     runtime = d["runtime"]
-                    await self._set_switch(d["c"]["switch_entity"], True)
                     if d["extend_timer"]:
-                        # Arm the min-runtime lock from the moment of turn-on.
-                        # Only set once per turn-on (extend_timer is False while
-                        # already running), so the timer counts down naturally.
+                        # Fresh OFF→ON turn-on.
+                        if turned_on_this_cycle:
+                            # Defer: don't turn on, let next cycle re-evaluate.
+                            d["should_on"] = False
+                            d["skip_switch"] = True
+                            _LOGGER.debug(
+                                "Consumer %r (P%s) turn-on deferred: one turn-on per cycle",
+                                d["c"]["name"], d["c"].get("priority", "?"),
+                            )
+                            continue
+                        await self._set_switch(d["c"]["switch_entity"], True)
                         min_run = float(d["c"].get("min_run_minutes", 0))
                         runtime.on_until_ts = now + min_run * 60
-                        # Record turn-on timestamp for the global cooldown.
                         self._last_turn_on_ts = now
+                        turned_on_this_cycle = True
                         _LOGGER.warning(
                             "Consumer %r (P%s) turned ON — %s | production=%.0fW, base_load=%.0fW, surplus=%.0fW, min_run=%.0fmin, cooldown=%ds",
                             d["c"]["name"],
@@ -815,6 +828,9 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             min_run,
                             TURN_ON_COOLDOWN_SECONDS,
                         )
+                    else:
+                        # Already running — re-affirm switch without consuming slot.
+                        await self._set_switch(d["c"]["switch_entity"], True)
 
             # Phase 4: update runtime state and build consumer_states.
             for d in decisions:
