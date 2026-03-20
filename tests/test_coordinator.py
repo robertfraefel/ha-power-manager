@@ -898,3 +898,458 @@ class TestReasonField:
         result = _run(coord._async_update_data())
 
         assert "cooldown" in result["consumer_states"]["Washer"]["reason"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Consumer CRUD
+# ---------------------------------------------------------------------------
+
+class TestConsumerCRUD:
+    """Tests for add / update / remove / rename consumer operations."""
+
+    def test_add_consumer(self):
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[], consumers=[])
+
+        _run(coord.async_add_consumer(
+            "Boiler", "switch.boiler", "sensor.boiler_power", 1, 600.0, 15.0,
+        ))
+
+        assert len(coord._consumers) == 1
+        assert coord._consumers[0]["name"] == "Boiler"
+        assert coord._consumers[0]["priority"] == 1
+        assert coord._consumers[0]["expected_power"] == 600.0
+        assert coord._consumers[0]["min_run_minutes"] == 15.0
+        assert "Boiler" in coord._runtime
+
+    def test_add_consumer_rejects_empty_name(self):
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[], consumers=[])
+
+        with pytest.raises(Exception, match="cannot be empty"):
+            _run(coord.async_add_consumer(
+                " ", "switch.x", "sensor.x", 1, 500.0, 0,
+            ))
+
+    def test_add_consumer_rejects_duplicate_name(self):
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[], consumers=[
+            _consumer("Boiler", priority=1),
+        ])
+
+        with pytest.raises(Exception, match="already exists"):
+            _run(coord.async_add_consumer(
+                "Boiler", "switch.x", "sensor.x", 2, 500.0, 0,
+            ))
+
+    def test_add_consumer_with_cooldown(self):
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[], consumers=[])
+
+        _run(coord.async_add_consumer(
+            "Boiler", "switch.boiler", "sensor.boiler_power", 1, 600.0, 15.0,
+            cooldown_seconds=120.0,
+        ))
+
+        assert coord._consumers[0]["cooldown_seconds"] == 120.0
+
+    def test_update_consumer_fields(self):
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[], consumers=[
+            _consumer("Boiler", priority=1, expected_power=500),
+        ])
+
+        _run(coord.async_update_consumer(
+            name="Boiler",
+            expected_power=800.0,
+            min_run_minutes=30.0,
+            cooldown_seconds=60.0,
+        ))
+
+        c = coord._consumers[0]
+        assert c["expected_power"] == 800.0
+        assert c["min_run_minutes"] == 30.0
+        assert c["cooldown_seconds"] == 60.0
+
+    def test_rename_consumer(self):
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[], consumers=[
+            _consumer("Boiler", priority=1),
+        ])
+        coord._runtime["Boiler"] = ConsumerRuntime(is_on=True)
+
+        _run(coord.async_update_consumer(name="Boiler", new_name="Heater"))
+
+        assert coord._consumers[0]["name"] == "Heater"
+        assert "Heater" in coord._runtime
+        assert "Boiler" not in coord._runtime
+        # Runtime state preserved.
+        assert coord._runtime["Heater"].is_on is True
+
+    def test_rename_to_existing_name_fails(self):
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[], consumers=[
+            _consumer("Boiler", priority=1),
+            _consumer("Washer", priority=2),
+        ])
+
+        with pytest.raises(Exception, match="already exists"):
+            _run(coord.async_update_consumer(name="Boiler", new_name="Washer"))
+
+    def test_remove_consumer(self):
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[], consumers=[
+            _consumer("Boiler", priority=1),
+            _consumer("Washer", priority=2),
+        ])
+
+        _run(coord.async_remove_consumer("Boiler"))
+
+        assert len(coord._consumers) == 1
+        assert coord._consumers[0]["name"] == "Washer"
+        assert "Boiler" not in coord._runtime
+
+    def test_remove_unknown_consumer_fails(self):
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[], consumers=[])
+
+        with pytest.raises(Exception, match="unknown consumer"):
+            _run(coord.async_remove_consumer("Ghost"))
+
+
+# ---------------------------------------------------------------------------
+# Producer CRUD
+# ---------------------------------------------------------------------------
+
+class TestProducerCRUD:
+    """Tests for add / update / remove producer operations."""
+
+    def test_add_producer(self):
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[], consumers=[])
+
+        _run(coord.async_add_producer("Solar Roof", "sensor.solar_roof"))
+
+        assert len(coord._producers) == 1
+        assert coord._producers[0]["name"] == "Solar Roof"
+        assert coord._producers[0]["entity_id"] == "sensor.solar_roof"
+
+    def test_add_duplicate_producer_fails(self):
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[
+            {"name": "Solar", "entity_id": "sensor.solar"},
+        ], consumers=[])
+
+        with pytest.raises(Exception, match="already exists"):
+            _run(coord.async_add_producer("Solar", "sensor.solar2"))
+
+    def test_remove_producer(self):
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[
+            {"name": "Solar", "entity_id": "sensor.solar"},
+        ], consumers=[])
+
+        _run(coord.async_remove_producer("Solar"))
+
+        assert len(coord._producers) == 0
+
+    def test_update_producer(self):
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[
+            {"name": "Solar", "entity_id": "sensor.solar_old"},
+        ], consumers=[])
+
+        _run(coord.async_update_producer("Solar", "sensor.solar_new"))
+
+        assert coord._producers[0]["entity_id"] == "sensor.solar_new"
+
+    def test_rename_producer(self):
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[
+            {"name": "Solar", "entity_id": "sensor.solar"},
+        ], consumers=[])
+
+        _run(coord.async_update_producer("Solar", "sensor.solar", new_name="PV"))
+
+        assert coord._producers[0]["name"] == "PV"
+
+
+# ---------------------------------------------------------------------------
+# Budget deduction & remaining surplus
+# ---------------------------------------------------------------------------
+
+class TestBudgetDeduction:
+    """Tests for remaining_surplus budget deduction on fresh turn-ons."""
+
+    def test_fresh_turn_on_deducts_expected_from_remaining(self):
+        """When a consumer turns ON (OFF→ON), expected_power is deducted."""
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("2000", "W"),  # surplus = 2000W
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [
+            _consumer("Boiler", priority=1, expected_power=600),
+        ]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+
+        result = _run(coord._async_update_data())
+
+        # Surplus was 2000W, Boiler turns on → remaining = 2000 - 600 = 1400W.
+        assert result["remaining_surplus"] == pytest.approx(1400.0)
+
+    def test_already_on_consumer_does_not_deduct(self):
+        """A consumer already ON does not re-deduct from remaining_surplus
+        because its draw is already included in base_load."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("600", "W"),  # includes Boiler's draw
+            "sensor.pv": _make_state("2000", "W"),  # surplus = 1400W
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [
+            _consumer("Boiler", priority=1, expected_power=600),
+        ]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        coord._runtime["Boiler"] = ConsumerRuntime(is_on=True)
+
+        result = _run(coord._async_update_data())
+
+        # Boiler is already ON → no deduction → remaining = surplus = 1400W.
+        assert result["remaining_surplus"] == pytest.approx(1400.0)
+
+    def test_multiple_fresh_turn_ons_deduct_sequentially(self):
+        """Budget deducted from remaining_surplus even though only one turns on per cycle.
+        P2 sees the reduced budget from P1's deduction (regardless of whether P2 actually turns on)."""
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("2000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [
+            _consumer("Boiler", priority=1, expected_power=600),
+            _consumer("Washer", priority=2, expected_power=600),
+        ]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+
+        result = _run(coord._async_update_data())
+
+        # Phase 1 decides both ON and deducts expected for both fresh turn-ons:
+        # remaining_surplus = 2000 - 600 (P1) - 600 (P2) = 800W.
+        # Phase 3 only turns on P1 (one-per-cycle), but budget was already deducted in Phase 1.
+        assert result["remaining_surplus"] == pytest.approx(800.0)
+
+
+# ---------------------------------------------------------------------------
+# Multiple producers
+# ---------------------------------------------------------------------------
+
+class TestMultipleProducers:
+    """Tests for summing multiple producer power values."""
+
+    def test_total_production_sums_all_producers(self):
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.solar_roof": _make_state("1500", "W"),
+            "sensor.solar_carport": _make_state("800", "W"),
+        }
+        producers = [
+            {"name": "Roof", "entity_id": "sensor.solar_roof"},
+            {"name": "Carport", "entity_id": "sensor.solar_carport"},
+        ]
+        hass = _make_hass(states=states)
+        coord = _make_coordinator(hass, producers=producers, consumers=[])
+
+        result = _run(coord._async_update_data())
+
+        assert result["total_production"] == pytest.approx(2300.0)
+        assert result["surplus"] == pytest.approx(2300.0)
+
+    def test_unavailable_producer_contributes_zero(self):
+        """A producer whose entity is unavailable contributes 0W."""
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.solar_roof": _make_state("1500", "W"),
+            # sensor.solar_carport does NOT exist in states.
+        }
+        producers = [
+            {"name": "Roof", "entity_id": "sensor.solar_roof"},
+            {"name": "Carport", "entity_id": "sensor.solar_carport"},
+        ]
+        hass = _make_hass(states=states)
+        coord = _make_coordinator(hass, producers=producers, consumers=[])
+
+        result = _run(coord._async_update_data())
+
+        assert result["total_production"] == pytest.approx(1500.0)
+
+
+# ---------------------------------------------------------------------------
+# Min-run timer arming
+# ---------------------------------------------------------------------------
+
+class TestMinRunTimer:
+    """Tests for min-run timer arm/re-arm logic."""
+
+    def test_timer_armed_only_on_off_to_on_transition(self):
+        """on_until_ts should be set only when a consumer transitions from OFF to ON."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [_consumer("Boiler", priority=1, expected_power=500, min_run_minutes=10)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        # Consumer is OFF → will turn ON → timer should be armed.
+
+        _run(coord._async_update_data())
+
+        assert coord._runtime["Boiler"].on_until_ts == pytest.approx(now + 10 * 60)
+
+    def test_timer_not_rearmed_while_already_on(self):
+        """If a consumer is already ON, the timer must NOT be reset every cycle."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+
+        now = 1000.0
+        original_until = now + 300  # 5 minutes from now (set in a previous cycle)
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [_consumer("Boiler", priority=1, expected_power=500, min_run_minutes=10)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        coord._runtime["Boiler"] = ConsumerRuntime(is_on=True, on_until_ts=original_until)
+
+        _run(coord._async_update_data())
+
+        # Timer should NOT be re-armed (still at original value).
+        assert coord._runtime["Boiler"].on_until_ts == pytest.approx(original_until)
+
+
+# ---------------------------------------------------------------------------
+# Edge cases
+# ---------------------------------------------------------------------------
+
+class TestEdgeCases:
+    """Edge-case and boundary tests."""
+
+    def test_empty_consumers_list(self):
+        """No consumers configured — should not crash."""
+        states = {
+            "sensor.base_load": _make_state("500", "W"),
+            "sensor.pv": _make_state("1000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        hass = _make_hass(states=states)
+        coord = _make_coordinator(hass, producers=producers, consumers=[])
+
+        result = _run(coord._async_update_data())
+
+        assert result["surplus"] == pytest.approx(500.0)
+        assert result["consumer_states"] == {}
+
+    def test_empty_producers_list(self):
+        """No producers — total_production = 0, surplus negative."""
+        states = {
+            "sensor.base_load": _make_state("500", "W"),
+        }
+        hass = _make_hass(states=states)
+        coord = _make_coordinator(hass, producers=[], consumers=[])
+
+        result = _run(coord._async_update_data())
+
+        assert result["total_production"] == pytest.approx(0.0)
+        assert result["surplus"] == pytest.approx(-500.0)
+
+    def test_zero_expected_power_consumer(self):
+        """Consumer with expected_power=0 should turn on with any positive surplus."""
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("990", "W"),
+            "sensor.pv": _make_state("1000", "W"),  # surplus = 10W
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [_consumer("ZeroDevice", priority=1, expected_power=0)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+
+        result = _run(coord._async_update_data())
+
+        # threshold = 0 * 1.05 = 0, surplus 10 >= 0 → ON.
+        assert result["consumer_states"]["ZeroDevice"]["is_on"] is True
+
+    def test_scan_interval_update(self):
+        """async_set_scan_interval changes update_interval."""
+        from datetime import timedelta
+
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[], consumers=[])
+
+        _run(coord.async_set_scan_interval(30))
+
+        assert coord.update_interval == timedelta(seconds=30)
+
+    def test_scan_interval_rejects_below_minimum(self):
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[], consumers=[])
+
+        with pytest.raises(Exception, match="at least 5"):
+            _run(coord.async_set_scan_interval(3))
+
+    def test_consumer_mode_change(self):
+        """async_set_consumer_mode updates the runtime mode."""
+        from custom_components.power_manager.const import MODE_FORCE_ON
+
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[], consumers=[
+            _consumer("Boiler", priority=1),
+        ])
+
+        _run(coord.async_set_consumer_mode("Boiler", MODE_FORCE_ON))
+
+        assert coord._runtime["Boiler"].mode == MODE_FORCE_ON
+
+    def test_invalid_mode_rejected(self):
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[], consumers=[
+            _consumer("Boiler", priority=1),
+        ])
+
+        with pytest.raises(Exception, match="invalid mode"):
+            _run(coord.async_set_consumer_mode("Boiler", "turbo"))
+
+    def test_persistence_called_on_add_consumer(self):
+        """_async_save must be called after adding a consumer."""
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[], consumers=[])
+
+        _run(coord.async_add_consumer(
+            "Boiler", "switch.boiler", "sensor.boiler_power", 1, 500.0, 0,
+        ))
+
+        coord._store.async_save.assert_awaited_once()
+
+    def test_persistence_called_on_remove_consumer(self):
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, producers=[], consumers=[
+            _consumer("Boiler", priority=1),
+        ])
+
+        _run(coord.async_remove_consumer("Boiler"))
+
+        coord._store.async_save.assert_awaited_once()
