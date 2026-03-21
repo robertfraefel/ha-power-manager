@@ -67,7 +67,7 @@ def _make_coordinator(
     coord.update_interval = timedelta(seconds=10)
     coord._warmup_remaining = 0
     coord._last_turn_on_ts = 0.0
-    coord._last_turn_on_cooldown = 300.0
+    coord._last_turn_on_cooldown = 5.0 * 60  # DEFAULT_COOLDOWN_MINUTES in seconds
     coord._store = MagicMock()
     coord._store.async_save = AsyncMock()
     coord.async_request_refresh = AsyncMock()
@@ -368,7 +368,7 @@ class TestCooldown:
     """Tests for per-consumer cooldown logic."""
 
     @staticmethod
-    def _consumer(name, priority=1, expected_power=500.0, cooldown_seconds=300, **kw):
+    def _consumer(name, priority=1, expected_power=500.0, cooldown_minutes=5, **kw):
         return {
             "name": name,
             "switch_entity": f"switch.{name.lower().replace(' ', '_')}",
@@ -376,7 +376,7 @@ class TestCooldown:
             "priority": priority,
             "expected_power": expected_power,
             "min_run_minutes": kw.get("min_run_minutes", 0),
-            "cooldown_seconds": cooldown_seconds,
+            "cooldown_minutes": cooldown_minutes,
         }
 
     @staticmethod
@@ -396,8 +396,8 @@ class TestCooldown:
         }
         producers = [{"name": "PV", "entity_id": "sensor.pv"}]
         consumers = [
-            self._consumer("Boiler", priority=1, cooldown_seconds=120),
-            self._consumer("Washer", priority=2, cooldown_seconds=60),
+            self._consumer("Boiler", priority=1, cooldown_minutes=2),
+            self._consumer("Washer", priority=2, cooldown_minutes=1),
         ]
         hass = _make_hass(states=states, now=now)
         coord = _make_coordinator(hass, producers=producers, consumers=consumers)
@@ -408,7 +408,7 @@ class TestCooldown:
         on_calls = [c for c in calls if c.args[1] == "turn_on"]
         assert len(on_calls) == 1, f"Expected 1 turn_on, got {len(on_calls)}"
         assert on_calls[0].args[2]["entity_id"] == "switch.boiler"
-        assert coord._last_turn_on_cooldown == 120.0
+        assert coord._last_turn_on_cooldown == 2.0 * 60  # 2 minutes in seconds
         assert coord._last_turn_on_ts == now
 
     def test_cooldown_expired_allows_next_consumer(self):
@@ -422,8 +422,8 @@ class TestCooldown:
         }
         producers = [{"name": "PV", "entity_id": "sensor.pv"}]
         consumers = [
-            self._consumer("Boiler", priority=1, cooldown_seconds=60),
-            self._consumer("Washer", priority=2, cooldown_seconds=60),
+            self._consumer("Boiler", priority=1, cooldown_minutes=1),
+            self._consumer("Washer", priority=2, cooldown_minutes=1),
         ]
         hass = _make_hass(states=states, now=now)
         coord = _make_coordinator(hass, producers=producers, consumers=consumers)
@@ -450,8 +450,8 @@ class TestCooldown:
         }
         producers = [{"name": "PV", "entity_id": "sensor.pv"}]
         consumers = [
-            self._consumer("Boiler", priority=1, cooldown_seconds=300),
-            self._consumer("Washer", priority=2, cooldown_seconds=60),
+            self._consumer("Boiler", priority=1, cooldown_minutes=5),
+            self._consumer("Washer", priority=2, cooldown_minutes=1),
         ]
         hass = _make_hass(states=states, now=now)
         coord = _make_coordinator(hass, producers=producers, consumers=consumers)
@@ -477,18 +477,18 @@ class TestCooldown:
         }
         producers = [{"name": "PV", "entity_id": "sensor.pv"}]
         consumers = [
-            self._consumer("SmallDevice", priority=1, cooldown_seconds=30),
+            self._consumer("SmallDevice", priority=1, cooldown_minutes=0.5),
         ]
         hass = _make_hass(states=states, now=now)
         coord = _make_coordinator(hass, producers=producers, consumers=consumers)
 
         self._run(coord._async_update_data())
 
-        assert coord._last_turn_on_cooldown == 30.0
+        assert coord._last_turn_on_cooldown == 0.5 * 60  # 0.5 minutes in seconds
 
     def test_default_cooldown_when_field_missing(self):
-        """Consumers without cooldown_seconds use DEFAULT_COOLDOWN_SECONDS."""
-        from custom_components.power_manager.const import DEFAULT_COOLDOWN_SECONDS
+        """Consumers without cooldown_minutes use DEFAULT_COOLDOWN_MINUTES."""
+        from custom_components.power_manager.const import DEFAULT_COOLDOWN_MINUTES
 
         now = 1000.0
         states = {
@@ -496,7 +496,7 @@ class TestCooldown:
             "sensor.pv": _make_state("5000", "W"),
         }
         producers = [{"name": "PV", "entity_id": "sensor.pv"}]
-        # Consumer dict without cooldown_seconds (simulating old storage format).
+        # Consumer dict without cooldown_minutes (simulating old storage format).
         consumers = [{
             "name": "OldBoiler",
             "switch_entity": "switch.old_boiler",
@@ -510,14 +510,14 @@ class TestCooldown:
 
         self._run(coord._async_update_data())
 
-        assert coord._last_turn_on_cooldown == DEFAULT_COOLDOWN_SECONDS
+        assert coord._last_turn_on_cooldown == DEFAULT_COOLDOWN_MINUTES * 60
 
 
 # ---------------------------------------------------------------------------
 # Helper shared across new test classes
 # ---------------------------------------------------------------------------
 
-def _consumer(name, priority=1, expected_power=500.0, cooldown_seconds=300, **kw):
+def _consumer(name, priority=1, expected_power=500.0, cooldown_minutes=5, **kw):
     return {
         "name": name,
         "switch_entity": kw.get("switch_entity", f"switch.{name.lower().replace(' ', '_')}"),
@@ -525,7 +525,7 @@ def _consumer(name, priority=1, expected_power=500.0, cooldown_seconds=300, **kw
         "priority": priority,
         "expected_power": expected_power,
         "min_run_minutes": kw.get("min_run_minutes", 0),
-        "cooldown_seconds": cooldown_seconds,
+        "cooldown_minutes": cooldown_minutes,
     }
 
 
@@ -886,14 +886,14 @@ class TestReasonField:
         }
         producers = [{"name": "PV", "entity_id": "sensor.pv"}]
         consumers = [
-            _consumer("Boiler", priority=1, expected_power=500, cooldown_seconds=300),
-            _consumer("Washer", priority=2, expected_power=500, cooldown_seconds=60),
+            _consumer("Boiler", priority=1, expected_power=500, cooldown_minutes=5),
+            _consumer("Washer", priority=2, expected_power=500, cooldown_minutes=1),
         ]
         hass = _make_hass(states=states, now=now)
         coord = _make_coordinator(hass, producers=producers, consumers=consumers)
         coord._runtime["Boiler"] = ConsumerRuntime(is_on=True)
         coord._last_turn_on_ts = now - 100
-        coord._last_turn_on_cooldown = 300.0
+        coord._last_turn_on_cooldown = 300.0  # 5min in seconds
 
         result = _run(coord._async_update_data())
 
@@ -948,10 +948,10 @@ class TestConsumerCRUD:
 
         _run(coord.async_add_consumer(
             "Boiler", "switch.boiler", "sensor.boiler_power", 1, 600.0, 15.0,
-            cooldown_seconds=120.0,
+            cooldown_minutes=2.0,
         ))
 
-        assert coord._consumers[0]["cooldown_seconds"] == 120.0
+        assert coord._consumers[0]["cooldown_minutes"] == 2.0
 
     def test_update_consumer_fields(self):
         hass = _make_hass(states={})
@@ -963,13 +963,13 @@ class TestConsumerCRUD:
             name="Boiler",
             expected_power=800.0,
             min_run_minutes=30.0,
-            cooldown_seconds=60.0,
+            cooldown_minutes=1.0,
         ))
 
         c = coord._consumers[0]
         assert c["expected_power"] == 800.0
         assert c["min_run_minutes"] == 30.0
-        assert c["cooldown_seconds"] == 60.0
+        assert c["cooldown_minutes"] == 1.0
 
     def test_rename_consumer(self):
         from custom_components.power_manager.coordinator import ConsumerRuntime

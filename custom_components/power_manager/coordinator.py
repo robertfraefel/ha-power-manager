@@ -80,7 +80,7 @@ from .const import (
     CONF_CONSUMERS,
     CONF_PRODUCERS,
     CONF_SCAN_INTERVAL,
-    DEFAULT_COOLDOWN_SECONDS,
+    DEFAULT_COOLDOWN_MINUTES,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     MODE_AUTO,
@@ -105,7 +105,7 @@ SURPLUS_HYSTERESIS_FACTOR = 0.05  # 5 %
 # reboot when entity states may not yet reflect actual hardware conditions.
 STARTUP_WARMUP_CYCLES = 2
 
-# Default cooldown is now per-consumer: DEFAULT_COOLDOWN_SECONDS in const.py.
+# Default cooldown is now per-consumer: DEFAULT_COOLDOWN_MINUTES in const.py.
 
 
 @dataclass
@@ -162,7 +162,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # turn-on cooldown to prevent cascading turn-ons before the smart meter
         # has had time to reflect the new load.
         self._last_turn_on_ts: float = 0.0
-        self._last_turn_on_cooldown: float = DEFAULT_COOLDOWN_SECONDS
+        self._last_turn_on_cooldown: float = DEFAULT_COOLDOWN_MINUTES * 60
 
         # Fixed storage key — not tied to entry_id so config survives
         # remove-and-re-add of the integration during updates.
@@ -411,7 +411,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         priority: int,
         expected_power: float,
         min_run_minutes: float,
-        cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS,
+        cooldown_minutes: float = DEFAULT_COOLDOWN_MINUTES,
     ) -> None:
         """Add a new consumer load.
 
@@ -422,7 +422,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             priority:         Lower number = higher priority (allocated first).
             expected_power:   Estimated power draw used for surplus budgeting (W).
             min_run_minutes:  Minimum on-time per cycle to protect appliances (min).
-            cooldown_seconds: Seconds to block other turn-ons after this consumer starts.
+            cooldown_minutes: Minutes to block other turn-ons after this consumer starts.
 
         Raises:
             UpdateFailed: If a consumer with this name already exists or
@@ -443,7 +443,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "priority": int(priority),
                 "expected_power": float(expected_power),
                 "min_run_minutes": float(min_run_minutes),
-                "cooldown_seconds": float(cooldown_seconds),
+                "cooldown_minutes": float(cooldown_minutes),
             }
         )
         self._sync_runtime()
@@ -463,7 +463,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         priority: int | None = None,
         expected_power: float | None = None,
         min_run_minutes: float | None = None,
-        cooldown_seconds: float | None = None,
+        cooldown_minutes: float | None = None,
         mode: str | None = None,
     ) -> None:
         """Update one or more fields of an existing consumer.
@@ -478,7 +478,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             priority:         New priority value.
             expected_power:   New expected power draw (W).
             min_run_minutes:  New minimum runtime (min).
-            cooldown_seconds: Seconds to block other turn-ons after this consumer starts.
+            cooldown_minutes: Minutes to block other turn-ons after this consumer starts.
             mode:             New operating mode.
 
         Raises:
@@ -515,8 +515,8 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             c["expected_power"] = float(expected_power)
         if min_run_minutes is not None:
             c["min_run_minutes"] = float(min_run_minutes)
-        if cooldown_seconds is not None:
-            c["cooldown_seconds"] = float(cooldown_seconds)
+        if cooldown_minutes is not None:
+            c["cooldown_minutes"] = float(cooldown_minutes)
 
         if mode is not None:
             if mode not in VALID_MODES:
@@ -821,11 +821,11 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         min_run = float(d["c"].get("min_run_minutes", 0))
                         runtime.on_until_ts = now + min_run * 60
                         self._last_turn_on_ts = now
-                        cooldown = float(d["c"].get("cooldown_seconds", DEFAULT_COOLDOWN_SECONDS))
-                        self._last_turn_on_cooldown = cooldown
+                        cooldown_secs = float(d["c"].get("cooldown_minutes", DEFAULT_COOLDOWN_MINUTES)) * 60
+                        self._last_turn_on_cooldown = cooldown_secs
                         turned_on_this_cycle = True
                         _LOGGER.warning(
-                            "Consumer %r (P%s) turned ON — %s | production=%.0fW, base_load=%.0fW, surplus=%.0fW, min_run=%.0fmin, cooldown=%ds",
+                            "Consumer %r (P%s) turned ON — %s | production=%.0fW, base_load=%.0fW, surplus=%.0fW, min_run=%.0fmin, cooldown=%.0fmin",
                             d["c"]["name"],
                             d["c"].get("priority", "?"),
                             d["reason"],
@@ -833,7 +833,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             base_load,
                             surplus,
                             min_run,
-                            cooldown,
+                            float(d["c"].get("cooldown_minutes", DEFAULT_COOLDOWN_MINUTES)),
                         )
                     else:
                         # Already running — re-affirm switch without consuming slot.
