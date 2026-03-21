@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import json
 import logging
+import logging.handlers
 import time
 from dataclasses import dataclass
 from datetime import timedelta
@@ -91,6 +92,28 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Persistent file logger for switch events — survives HA restarts and
+# journald buffer rotation.  Writes to /config/power_manager.log on HA OS.
+_SWITCH_LOG = logging.getLogger(f"{__name__}.switch_events")
+_SWITCH_LOG.propagate = False  # don't duplicate into HA's main log
+try:
+    from pathlib import Path as _Path
+    _log_dir = _Path("/config")
+    if _log_dir.is_dir():
+        _switch_handler = logging.handlers.RotatingFileHandler(
+            str(_log_dir / "power_manager.log"),
+            maxBytes=5 * 1024 * 1024,  # 5 MB
+            backupCount=3,
+            encoding="utf-8",
+        )
+        _switch_handler.setFormatter(
+            logging.Formatter("%(asctime)s  %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+        )
+        _SWITCH_LOG.addHandler(_switch_handler)
+        _SWITCH_LOG.setLevel(logging.INFO)
+except Exception:
+    pass  # no file logging outside HA OS (e.g. during tests)
 
 STORAGE_VERSION = 1
 
@@ -784,15 +807,13 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             await self._set_switch(d["c"]["switch_entity"], False)
                             if was_on:
                                 shed_done = True
-                                _LOGGER.warning(
-                                    "Consumer %r (P%s) turned OFF — %s | production=%.0fW, base_load=%.0fW, surplus=%.0fW",
-                                    d["c"]["name"],
-                                    d["c"].get("priority", "?"),
-                                    d["reason"],
-                                    total_production,
-                                    base_load,
-                                    surplus,
+                                _off_msg = (
+                                    "Consumer %r (P%s) turned OFF — %s | production=%.0fW, base_load=%.0fW, surplus=%.0fW"
+                                    % (d["c"]["name"], d["c"].get("priority", "?"), d["reason"],
+                                       total_production, base_load, surplus)
                                 )
+                                _LOGGER.warning(_off_msg)
+                                _SWITCH_LOG.info(_off_msg)
 
             # Phase 3: turn ON in forward priority order (highest priority on first).
             # At most one fresh turn-on per cycle.  After turning on a consumer
@@ -824,17 +845,14 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         cooldown_secs = float(d["c"].get("cooldown_minutes", DEFAULT_COOLDOWN_MINUTES)) * 60
                         self._last_turn_on_cooldown = cooldown_secs
                         turned_on_this_cycle = True
-                        _LOGGER.warning(
-                            "Consumer %r (P%s) turned ON — %s | production=%.0fW, base_load=%.0fW, surplus=%.0fW, min_run=%.0fmin, cooldown=%.0fmin",
-                            d["c"]["name"],
-                            d["c"].get("priority", "?"),
-                            d["reason"],
-                            total_production,
-                            base_load,
-                            surplus,
-                            min_run,
-                            float(d["c"].get("cooldown_minutes", DEFAULT_COOLDOWN_MINUTES)),
+                        _on_msg = (
+                            "Consumer %r (P%s) turned ON — %s | production=%.0fW, base_load=%.0fW, surplus=%.0fW, min_run=%.0fmin, cooldown=%.0fmin"
+                            % (d["c"]["name"], d["c"].get("priority", "?"), d["reason"],
+                               total_production, base_load, surplus, min_run,
+                               float(d["c"].get("cooldown_minutes", DEFAULT_COOLDOWN_MINUTES)))
                         )
+                        _LOGGER.warning(_on_msg)
+                        _SWITCH_LOG.info(_on_msg)
                     else:
                         # Already running — re-affirm switch without consuming slot.
                         await self._set_switch(d["c"]["switch_entity"], True)
