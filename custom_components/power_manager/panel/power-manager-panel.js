@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.33';
+const PANEL_VERSION = '0.2.34';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -349,6 +349,8 @@ class PowerManagerPanel extends HTMLElement {
             <span><b>no surplus</b> = not enough solar</span>
             <span class="legend-sep">·</span>
             <span><b>min-run hold</b> = within minimum runtime · <b>⏱</b> = time remaining</span>
+            <span class="legend-sep">·</span>
+            <span><b>daily limit</b> = max daily runtime reached (0 = unlimited)</span>
           </div>
           <div class="add-row">
             <input id="newConName" placeholder="Name" />
