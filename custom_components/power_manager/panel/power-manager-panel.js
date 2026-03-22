@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.34';
+const PANEL_VERSION = '0.2.35';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -83,6 +83,18 @@ class PowerManagerPanel extends HTMLElement {
         }
       }, 150);
     });
+    // When the browser tab becomes visible again (after being in the background),
+    // force a reload.  Chrome throttles/suspends timers and WS calls in background
+    // tabs, which can leave the panel empty or stale.
+    if (!this._visibilityBound) {
+      this._visibilityBound = true;
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && this._initialized) {
+          this._loading = false;  // unstick if a WS call was frozen mid-flight
+          this._load();
+        }
+      });
+    }
     this._renderShell();
     this._bind();
     this._initialized = true;
