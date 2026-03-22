@@ -31,6 +31,8 @@ _HA_MODULES = [
     "homeassistant.helpers.entity",
     "homeassistant.helpers.storage",
     "homeassistant.helpers.update_coordinator",
+    "homeassistant.util",
+    "homeassistant.util.dt",
 ]
 
 for _name in _HA_MODULES:
@@ -72,3 +74,9 @@ _const_mod.UnitOfPower.WATT = "W"
 _sensor_mod = sys.modules["homeassistant.components.sensor"]
 _sensor_mod.SensorDeviceClass = MagicMock()
 _sensor_mod.SensorDeviceClass.POWER = "power"
+
+# dt_util stub — returns a controllable datetime for daily runtime tests
+from datetime import datetime, timezone
+
+_dt_mod = sys.modules["homeassistant.util.dt"]
+_dt_mod.now = lambda: datetime.now(tz=timezone.utc)

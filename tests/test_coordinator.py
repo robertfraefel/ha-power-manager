@@ -517,7 +517,7 @@ class TestCooldown:
 # Helper shared across new test classes
 # ---------------------------------------------------------------------------
 
-def _consumer(name, priority=1, expected_power=500.0, cooldown_minutes=5, **kw):
+def _consumer(name, priority=1, expected_power=500.0, cooldown_minutes=5, max_daily_minutes=0, **kw):
     return {
         "name": name,
         "switch_entity": kw.get("switch_entity", f"switch.{name.lower().replace(' ', '_')}"),
@@ -526,6 +526,7 @@ def _consumer(name, priority=1, expected_power=500.0, cooldown_minutes=5, **kw):
         "expected_power": expected_power,
         "min_run_minutes": kw.get("min_run_minutes", 0),
         "cooldown_minutes": cooldown_minutes,
+        "max_daily_minutes": max_daily_minutes,
     }
 
 
@@ -1353,3 +1354,147 @@ class TestEdgeCases:
         _run(coord.async_remove_consumer("Boiler"))
 
         coord._store.async_save.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Daily runtime limit
+# ---------------------------------------------------------------------------
+
+class TestDailyRuntime:
+    """Tests for max_daily_minutes feature."""
+
+    def test_daily_runtime_accumulates(self):
+        """Running consumer accumulates daily_runtime_s between cycles."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+        from homeassistant.util import dt as dt_util
+
+        now = 1000.0
+        today = dt_util.now().date().isoformat()
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [_consumer("Boiler", priority=1)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        # Simulate: was ON last cycle, check was 10s ago.
+        coord._runtime["Boiler"] = ConsumerRuntime(
+            is_on=True, last_on_check_ts=now - 10, daily_runtime_date=today
+        )
+
+        _run(coord._async_update_data())
+
+        # Should have accumulated ~10s.
+        assert coord._runtime["Boiler"].daily_runtime_s == pytest.approx(10.0, abs=1)
+
+    def test_daily_runtime_resets_on_date_change(self):
+        """Counter resets when the date changes (midnight)."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [_consumer("Boiler", priority=1)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        # Old date with accumulated runtime.
+        coord._runtime["Boiler"] = ConsumerRuntime(
+            is_on=True, daily_runtime_s=7200, daily_runtime_date="2020-01-01"
+        )
+
+        _run(coord._async_update_data())
+
+        # Should have reset to ~0 (not 7200).
+        assert coord._runtime["Boiler"].daily_runtime_s < 60
+
+    def test_daily_limit_blocks_turn_on(self):
+        """Consumer with exhausted daily limit stays OFF despite surplus."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+        from homeassistant.util import dt as dt_util
+
+        now = 1000.0
+        today = dt_util.now().date().isoformat()
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [_consumer("Boiler", priority=1, max_daily_minutes=60)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        # Already ran 61 minutes today.
+        coord._runtime["Boiler"] = ConsumerRuntime(
+            daily_runtime_s=61 * 60, daily_runtime_date=today
+        )
+
+        result = _run(coord._async_update_data())
+
+        assert result["consumer_states"]["Boiler"]["is_on"] is False
+        assert "daily limit" in result["consumer_states"]["Boiler"]["reason"]
+
+    def test_daily_limit_zero_means_unlimited(self):
+        """max_daily_minutes=0 means no limit — consumer turns on normally."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+        from homeassistant.util import dt as dt_util
+
+        now = 1000.0
+        today = dt_util.now().date().isoformat()
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [_consumer("Boiler", priority=1, max_daily_minutes=0)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        # Has run 500 minutes but limit is 0 (unlimited).
+        coord._runtime["Boiler"] = ConsumerRuntime(
+            daily_runtime_s=500 * 60, daily_runtime_date=today
+        )
+
+        result = _run(coord._async_update_data())
+
+        assert result["consumer_states"]["Boiler"]["is_on"] is True
+
+    def test_daily_runtime_in_consumer_states(self):
+        """consumer_states includes daily_runtime_m and max_daily_minutes."""
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [_consumer("Boiler", priority=1, max_daily_minutes=120)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+
+        result = _run(coord._async_update_data())
+
+        cs = result["consumer_states"]["Boiler"]
+        assert "daily_runtime_m" in cs
+        assert "max_daily_minutes" in cs
+        assert cs["max_daily_minutes"] == 120.0
+
+    def test_daily_limit_persisted(self):
+        """daily_runtimes are included in _async_save payload."""
+        from homeassistant.util import dt as dt_util
+
+        now = 1000.0
+        today = dt_util.now().date().isoformat()
+        hass = _make_hass(states={}, now=now)
+        coord = _make_coordinator(hass, producers=[], consumers=[
+            _consumer("Boiler", priority=1),
+        ])
+        coord._runtime["Boiler"].daily_runtime_s = 3600.0
+        coord._runtime["Boiler"].daily_runtime_date = today
+
+        _run(coord._async_save())
+
+        saved = coord._store.async_save.call_args[0][0]
+        assert "daily_runtimes" in saved
+        assert saved["daily_runtimes"]["Boiler"]["seconds"] == 3600.0
+        assert saved["daily_runtimes"]["Boiler"]["date"] == today

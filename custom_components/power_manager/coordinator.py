@@ -75,6 +75,7 @@ from homeassistant.const import UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_BASE_LOAD_ENTITY,
@@ -143,11 +144,18 @@ class ConsumerRuntime:
                      Resets to 0 on restart.
         is_on:       Whether the coordinator decided ON in the last cycle.
                      Used for hysteresis; resets to False on restart.
+        daily_runtime_s:    Accumulated ON-seconds today.  Persisted to storage.
+        last_on_check_ts:   Monotonic ts of last accumulation.  Resets on restart.
+        daily_runtime_date: ISO date (YYYY-MM-DD) for midnight reset detection.
+                            Persisted to storage.
     """
 
     mode: str = MODE_AUTO
     on_until_ts: float = 0.0
     is_on: bool = False  # tracks last-cycle decision for hysteresis
+    daily_runtime_s: float = 0.0
+    last_on_check_ts: float = 0.0
+    daily_runtime_date: str = ""
 
 
 class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -232,6 +240,13 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             current_runtime[name] = ConsumerRuntime(mode=mode)
         self._runtime = current_runtime
 
+        # Restore daily runtime counters (persisted across restarts).
+        daily_runtimes = stored.get("daily_runtimes", {})
+        for name, rt in self._runtime.items():
+            dr = daily_runtimes.get(name, {})
+            rt.daily_runtime_s = float(dr.get("seconds", 0))
+            rt.daily_runtime_date = dr.get("date", "")
+
         _LOGGER.debug(
             "Restored state: base_load_entity=%s, %d producers, %d consumers, running=%s",
             self._base_load_entity,
@@ -286,6 +301,11 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "scan_interval_seconds": int(self.update_interval.total_seconds()),
             # Only modes are persisted; transient fields (is_on, on_until_ts) are not.
             "runtime_modes": {name: rt.mode for name, rt in self._runtime.items()},
+            # Daily runtime counters survive restarts so limits work across reboots.
+            "daily_runtimes": {
+                name: {"seconds": rt.daily_runtime_s, "date": rt.daily_runtime_date}
+                for name, rt in self._runtime.items()
+            },
         }
         await self._store.async_save(payload)
 
@@ -435,17 +455,19 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         expected_power: float,
         min_run_minutes: float,
         cooldown_minutes: float = DEFAULT_COOLDOWN_MINUTES,
+        max_daily_minutes: float = 0,
     ) -> None:
         """Add a new consumer load.
 
         Args:
-            name:             Unique display name.
-            switch_entity:    HA switch entity ID to control.
-            power_entity:     HA sensor entity ID measuring actual consumption.
-            priority:         Lower number = higher priority (allocated first).
-            expected_power:   Estimated power draw used for surplus budgeting (W).
-            min_run_minutes:  Minimum on-time per cycle to protect appliances (min).
-            cooldown_minutes: Minutes to block other turn-ons after this consumer starts.
+            name:              Unique display name.
+            switch_entity:     HA switch entity ID to control.
+            power_entity:      HA sensor entity ID measuring actual consumption.
+            priority:          Lower number = higher priority (allocated first).
+            expected_power:    Estimated power draw used for surplus budgeting (W).
+            min_run_minutes:   Minimum on-time per cycle to protect appliances (min).
+            cooldown_minutes:  Minutes to block other turn-ons after this consumer starts.
+            max_daily_minutes: Maximum ON-minutes per day (0 = unlimited).
 
         Raises:
             UpdateFailed: If a consumer with this name already exists or
@@ -467,6 +489,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "expected_power": float(expected_power),
                 "min_run_minutes": float(min_run_minutes),
                 "cooldown_minutes": float(cooldown_minutes),
+                "max_daily_minutes": float(max_daily_minutes),
             }
         )
         self._sync_runtime()
@@ -487,6 +510,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         expected_power: float | None = None,
         min_run_minutes: float | None = None,
         cooldown_minutes: float | None = None,
+        max_daily_minutes: float | None = None,
         mode: str | None = None,
     ) -> None:
         """Update one or more fields of an existing consumer.
@@ -494,15 +518,16 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         All parameters except name are optional; omitted ones are left unchanged.
 
         Args:
-            name:             Current name of the consumer to update.
-            new_name:         Rename the consumer if provided and different.
-            switch_entity:    New switch entity ID.
-            power_entity:     New power sensor entity ID.
-            priority:         New priority value.
-            expected_power:   New expected power draw (W).
-            min_run_minutes:  New minimum runtime (min).
-            cooldown_minutes: Minutes to block other turn-ons after this consumer starts.
-            mode:             New operating mode.
+            name:              Current name of the consumer to update.
+            new_name:          Rename the consumer if provided and different.
+            switch_entity:     New switch entity ID.
+            power_entity:      New power sensor entity ID.
+            priority:          New priority value.
+            expected_power:    New expected power draw (W).
+            min_run_minutes:   New minimum runtime (min).
+            cooldown_minutes:  Minutes to block other turn-ons after this consumer starts.
+            max_daily_minutes: Maximum ON-minutes per day (0 = unlimited).
+            mode:              New operating mode.
 
         Raises:
             UpdateFailed: If consumer not found, new_name conflicts, or mode invalid.
@@ -540,6 +565,8 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             c["min_run_minutes"] = float(min_run_minutes)
         if cooldown_minutes is not None:
             c["cooldown_minutes"] = float(cooldown_minutes)
+        if max_daily_minutes is not None:
+            c["max_daily_minutes"] = float(max_daily_minutes)
 
         if mode is not None:
             if mode not in VALID_MODES:
@@ -645,6 +672,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             now = self.hass.loop.time()
             unix_now = time.time()
+            today_str = dt_util.now().date().isoformat()
 
             # Phase 1: compute decisions in ascending priority order so that
             # the remaining_surplus budget is deducted in the correct sequence.
@@ -655,6 +683,22 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 runtime = self._runtime.setdefault(name, ConsumerRuntime())
                 current_power = self._state_float(c.get("power_entity", ""))
                 currently_on = runtime.is_on
+
+                # ── Daily runtime accumulation ────────────────────────────
+                if runtime.daily_runtime_date != today_str:
+                    runtime.daily_runtime_s = 0.0
+                    runtime.last_on_check_ts = 0.0
+                    runtime.daily_runtime_date = today_str
+                if runtime.is_on and runtime.last_on_check_ts > 0:
+                    delta = now - runtime.last_on_check_ts
+                    if delta > 0:
+                        runtime.daily_runtime_s += delta
+                runtime.last_on_check_ts = now
+
+                max_daily = float(c.get("max_daily_minutes", 0))
+                daily_limit_reached = (
+                    max_daily > 0 and runtime.daily_runtime_s >= max_daily * 60
+                )
 
                 should_on = False
                 extend_timer = False
@@ -669,6 +713,9 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     skip_switch = True
                     reason = "deactivated"
                     _LOGGER.debug("Consumer %r: deactivated – skipped", name)
+                elif daily_limit_reached:
+                    should_on = False
+                    reason = f"off: daily limit ({runtime.daily_runtime_s / 60:.0f}/{max_daily:.0f} min)"
                 else:
                     reason = "off: insufficient surplus"
 
@@ -864,6 +911,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if not d["skip_switch"]:
                     runtime.is_on = d["should_on"]
                 remaining_secs = max(0.0, runtime.on_until_ts - now)
+                max_daily = float(c.get("max_daily_minutes", 0))
                 consumer_states[c["name"]] = {
                     "power": d["current_power"],
                     "mode": runtime.mode,
@@ -871,6 +919,8 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "switch_entity": c["switch_entity"],
                     "is_on": runtime.is_on,
                     "reason": d["reason"],
+                    "daily_runtime_m": round(runtime.daily_runtime_s / 60, 1),
+                    "max_daily_minutes": max_daily,
                 }
 
             return {

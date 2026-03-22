@@ -291,6 +291,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
             "expected_power": vol.Coerce(float),
             "min_run_minutes": vol.Coerce(float),
             vol.Optional("cooldown_minutes", default=5): vol.Coerce(float),
+            vol.Optional("max_daily_minutes", default=0): vol.Coerce(float),
         }
     )
     @websocket_api.async_response
@@ -312,6 +313,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
             msg["expected_power"],
             msg["min_run_minutes"],
             msg.get("cooldown_minutes", 5),
+            msg.get("max_daily_minutes", 0),
         )
         connection.send_result(msg["id"], _config_payload(coordinator))
 
@@ -326,6 +328,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
             vol.Optional("expected_power"): vol.Coerce(float),
             vol.Optional("min_run_minutes"): vol.Coerce(float),
             vol.Optional("cooldown_minutes"): vol.Coerce(float),
+            vol.Optional("max_daily_minutes"): vol.Coerce(float),
             vol.Optional("mode"): str,
         }
     )
@@ -349,6 +352,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
             expected_power=msg.get("expected_power"),
             min_run_minutes=msg.get("min_run_minutes"),
             cooldown_minutes=msg.get("cooldown_minutes"),
+            max_daily_minutes=msg.get("max_daily_minutes"),
             mode=msg.get("mode"),
         )
         connection.send_result(msg["id"], _config_payload(coordinator))
@@ -465,6 +469,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 expected_power=call.data["expected_power"],
                 min_run_minutes=call.data["min_run_minutes"],
                 cooldown_minutes=call.data.get("cooldown_minutes", 5),
+                max_daily_minutes=call.data.get("max_daily_minutes", 0),
             )
 
     async def _update_consumer(call: ServiceCall) -> None:
@@ -479,6 +484,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 expected_power=call.data.get("expected_power"),
                 min_run_minutes=call.data.get("min_run_minutes"),
                 cooldown_minutes=call.data.get("cooldown_minutes"),
+                max_daily_minutes=call.data.get("max_daily_minutes"),
                 mode=call.data.get("mode"),
             )
 
@@ -672,6 +678,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 vol.Required("expected_power"): vol.Coerce(float),
                 vol.Required("min_run_minutes"): vol.Coerce(float),
                 vol.Optional("cooldown_minutes", default=5): vol.Coerce(float),
+                vol.Optional("max_daily_minutes", default=0): vol.Coerce(float),
             }
         ),
     )
@@ -688,6 +695,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 vol.Optional("expected_power"): vol.Coerce(float),
                 vol.Optional("min_run_minutes"): vol.Coerce(float),
                 vol.Optional("cooldown_minutes"): vol.Coerce(float),
+                vol.Optional("max_daily_minutes"): vol.Coerce(float),
                 vol.Optional("mode"): vol.In(VALID_MODES),
             }
         ),

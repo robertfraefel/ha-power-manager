@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.31';
+const PANEL_VERSION = '0.2.32';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -322,7 +322,7 @@ class PowerManagerPanel extends HTMLElement {
                 <tr>
                   <th style="width:44px"></th>
                   <th>Name</th><th>Switch entity</th><th>Power sensor entity</th><th>Current power in W</th>
-                  <th>Prio</th><th>Exp power in W</th><th>Min run time in min</th><th>Cooldown in min</th><th>Mode</th>
+                  <th>Prio</th><th>Exp power in W</th><th>Min run time in min</th><th>Cooldown in min</th><th>Max daily min</th><th>Mode</th>
                   <th>Decision</th><th style="width:110px"></th>
                 </tr>
               </thead>
@@ -354,6 +354,7 @@ class PowerManagerPanel extends HTMLElement {
             <input id="newConExpected" type="number" placeholder="Exp W" />
             <input id="newConMin" type="number" placeholder="Min min" />
             <input id="newConCooldown" type="number" placeholder="Cooldown min" />
+            <input id="newConMaxDaily" type="number" placeholder="Max daily" />
             <button id="addCon" class="btn-add">+ Add consumer</button>
           </div>
         </div>
@@ -399,6 +400,7 @@ class PowerManagerPanel extends HTMLElement {
       const expectedNum = Number(this.querySelector('#newConExpected').value);
       const minNum = Number(this.querySelector('#newConMin').value);
       const cooldownNum = Number(this.querySelector('#newConCooldown').value);
+      const maxDailyNum = Number(this.querySelector('#newConMaxDaily').value);
       try {
         await this._ws('power_manager/add_consumer', {
           name: conName,
@@ -408,8 +410,9 @@ class PowerManagerPanel extends HTMLElement {
           expected_power: Number.isFinite(expectedNum) ? expectedNum : 0,
           min_run_minutes: Number.isFinite(minNum) ? minNum : 0,
           cooldown_minutes: Number.isFinite(cooldownNum) ? cooldownNum : 5,
+          max_daily_minutes: Number.isFinite(maxDailyNum) ? maxDailyNum : 0,
         });
-        ['#newConName', '#newConSwitch', '#newConPower', '#newConPrio', '#newConExpected', '#newConMin', '#newConCooldown']
+        ['#newConName', '#newConSwitch', '#newConPower', '#newConPrio', '#newConExpected', '#newConMin', '#newConCooldown', '#newConMaxDaily']
           .forEach((sel) => { this.querySelector(sel).value = ''; });
         await this._load();
       } catch (err) {
@@ -734,7 +737,12 @@ class PowerManagerPanel extends HTMLElement {
             }
           }
         }
-        conditionByConsumer[c.name] = { priority, reason, timeLeft };
+        const dailyRuntime = Number(state.daily_runtime_m || 0);
+        const maxDaily = Number(c.max_daily_minutes || 0);
+        const dailyInfo = maxDaily > 0
+          ? `${dailyRuntime.toFixed(0)}/${maxDaily.toFixed(0)}min today`
+          : (dailyRuntime >= 1 ? `${dailyRuntime.toFixed(0)}min today` : null);
+        conditionByConsumer[c.name] = { priority, reason, timeLeft, dailyInfo };
       });
 
     const consRows = this.querySelector('#consRows');
@@ -769,10 +777,11 @@ class PowerManagerPanel extends HTMLElement {
       // Decision column text
       const decisionHtml = (() => {
         if (!data.running) return '<span style="opacity:0.6;font-style:italic">Power Manager stopped</span>';
-        const { priority, reason, timeLeft } = conditionByConsumer[c.name] || { priority: c.priority ?? '?', reason: 'n/a', timeLeft: null };
+        const { priority, reason, timeLeft, dailyInfo } = conditionByConsumer[c.name] || { priority: c.priority ?? '?', reason: 'n/a', timeLeft: null, dailyInfo: null };
         const prioHtml = `<span style="display:inline-block;background:#e0e0e0;color:#333;border-radius:3px;padding:1px 5px;font-weight:700;font-size:10px;margin-right:5px;letter-spacing:0.03em">P${priority}</span>`;
         const timeHtml = timeLeft ? `<br><span style="opacity:0.65">⏱ ${timeLeft}${timeLeft !== '✓' ? ' left' : ''}</span>` : '';
-        return `${prioHtml}${reason}${timeHtml}`;
+        const dailyHtml = dailyInfo ? `<br><span style="opacity:0.65">${dailyInfo}</span>` : '';
+        return `${prioHtml}${reason}${timeHtml}${dailyHtml}`;
       })();
 
       const tr = document.createElement('tr');
@@ -792,6 +801,7 @@ class PowerManagerPanel extends HTMLElement {
         <td><input data-k="expected" type="number" value="${c.expected_power ?? 0}" /></td>
         <td><input data-k="min" type="number" value="${c.min_run_minutes ?? 0}" /></td>
         <td><input data-k="cooldown" type="number" value="${c.cooldown_minutes ?? 5}" /></td>
+        <td><input data-k="maxDaily" type="number" value="${c.max_daily_minutes ?? 0}" /></td>
         <td>
           <select data-k="mode">
             <option value="auto">auto</option>
@@ -831,6 +841,7 @@ class PowerManagerPanel extends HTMLElement {
         const expectedNum = Number(tr.querySelector('[data-k="expected"]').value);
         const minNum = Number(tr.querySelector('[data-k="min"]').value);
         const cooldownNum = Number(tr.querySelector('[data-k="cooldown"]').value);
+        const maxDailyNum = Number(tr.querySelector('[data-k="maxDaily"]').value);
         const payload = {
           name: c.name,
           switch_entity: tr.querySelector('[data-k="switch"]').value.trim(),
@@ -839,6 +850,7 @@ class PowerManagerPanel extends HTMLElement {
           expected_power: Number.isFinite(expectedNum) ? expectedNum : Number(c.expected_power ?? 0),
           min_run_minutes: Number.isFinite(minNum) ? minNum : Number(c.min_run_minutes ?? 0),
           cooldown_minutes: Number.isFinite(cooldownNum) ? cooldownNum : Number(c.cooldown_minutes ?? 5),
+          max_daily_minutes: Number.isFinite(maxDailyNum) ? maxDailyNum : Number(c.max_daily_minutes ?? 0),
           mode: tr.querySelector('[data-k="mode"]').value,
         };
         if (newName && newName !== c.name) payload.new_name = newName;
