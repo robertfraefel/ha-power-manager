@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.32';
+const PANEL_VERSION = '0.2.33';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -44,8 +44,11 @@ class PowerManagerPanel extends HTMLElement {
    * connection; restarts the polling timer if the user navigated back.
    */
   connectedCallback() {
-    if (!this._initialized) {
+    if (!this._initialized || !this.querySelector('#consRows')) {
+      // First init OR DOM was lost (HA destroyed innerHTML while away).
+      this._initialized = false;
       this._initOnce();
+      this._load();
     } else if (!this._pollTimer) {
       // User navigated away (which cleared the timer) and came back
       this._load();
@@ -110,7 +113,8 @@ class PowerManagerPanel extends HTMLElement {
    */
   set hass(hass) {
     this._hass = hass;
-    if (!this._initialized) {
+    if (!this._initialized || !this.querySelector('#consRows')) {
+      this._initialized = false;
       this._initOnce();
       this._load();
     } else if (this._data) {
