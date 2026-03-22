@@ -88,7 +88,7 @@ Consumers that are already OFF (from a previous cycle) are corrected uncondition
 
 ### Phase 3 — Turn ON
 
-Consumers decided ON are turned on in **forward priority order** (highest priority first). **At most one fresh OFF→ON turn-on per cycle.** After turning on a consumer, the cooldown is armed (using that consumer's `cooldown_seconds`) and remaining candidates are deferred to the next cycle. Already-running consumers are re-affirmed without consuming the turn-on slot.
+Consumers decided ON are turned on in **forward priority order** (highest priority first). **At most one fresh OFF→ON turn-on per cycle.** After turning on a consumer, the cooldown is armed (using that consumer's `cooldown_minutes`) and remaining candidates are deferred to the next cycle. Already-running consumers are re-affirmed without consuming the turn-on slot.
 
 ### Phase 4 — State update
 
@@ -108,7 +108,8 @@ Each consumer has the following fields:
 | **Priority** | Lower number = higher priority (P1 first). Must be unique. | — |
 | **Expected power (W)** | Estimated draw used for surplus budgeting | — |
 | **Min run time (min)** | Minimum on-time per activation to protect appliances | 0 |
-| **Cooldown (s)** | Seconds to block *all* other turn-ons after this consumer starts. Gives the smart meter time to reflect the new load. | 300 |
+| **Cooldown (min)** | Minutes to block *all* other turn-ons after this consumer starts. Gives the smart meter time to reflect the new load. | 5 |
+| **Max daily (min)** | Maximum total ON-minutes per day. Counter resets at local midnight. 0 = unlimited. Persisted across restarts. | 0 |
 | **Mode** | `auto` / `force_on` / `force_off` / `deactivated` | `auto` |
 
 ### Hysteresis
@@ -131,10 +132,20 @@ The asymmetric band provides a dead zone between the on/off thresholds.
 
 ### Cooldown
 
-After a consumer is switched ON, the coordinator blocks all other turn-ons for that consumer's `cooldown_seconds` (default 300s / 5 minutes). This gives the smart meter / base-load sensor time to reflect the new load. Without this delay the coordinator would see stale surplus values and potentially cascade too many consumers at once.
+After a consumer is switched ON, the coordinator blocks all other turn-ons for that consumer's `cooldown_minutes` (default 5 minutes). This gives the smart meter / base-load sensor time to reflect the new load. Without this delay the coordinator would see stale surplus values and potentially cascade too many consumers at once.
 
 - Already-running consumers are **not affected** by the cooldown — only fresh OFF→ON transitions are delayed
-- Each consumer can have a different cooldown value (e.g. 30s for a small device, 300s for a heat pump)
+- Each consumer can have a different cooldown value (e.g. 1 min for a small device, 5 min for a heat pump)
+
+### Max daily runtime
+
+Each consumer can have a `max_daily_minutes` limit (default 0 = unlimited). The coordinator tracks cumulative ON-time per consumer per day and blocks turn-on when the limit is reached.
+
+- Counter resets at **local midnight** (respects HA's configured timezone)
+- **Persisted to storage** — survives HA restarts
+- The daily limit is a **hard safety ceiling**: it overrides `force_on` and min-run hold
+- The panel shows current runtime in the decision column (e.g. `45/120min today`)
+- When the limit is reached, the reason shows `off: daily limit (120/120 min)`
 
 ### Startup warmup
 
@@ -144,11 +155,14 @@ After a HA reboot, the coordinator skips all switch decisions for the first 2 sc
 
 ## Logging
 
-Switch events (ON/OFF) are logged at **WARNING** level so they appear in `ha core logs` without extra configuration:
+Switch events (ON/OFF) are logged in two places:
+
+1. **`ha core logs`** — WARNING level, visible without extra configuration
+2. **`/config/power_manager.log`** — persistent file, 5 MB rotating (3 backups)
 
 ```
 Consumer 'Boiler' (P1) turned ON — on: surplus 850.0W >= 630.0W |
-  production=5250W, base_load=4400W, surplus=850W, min_run=15min, cooldown=300s
+  production=5250W, base_load=4400W, surplus=850W, min_run=15min, cooldown=5min
 
 Consumer 'Poolpumpe' (P3) turned OFF — off: surplus -150.0W < -29.5W |
   production=1200W, base_load=1350W, surplus=-150W
@@ -226,7 +240,7 @@ pip install voluptuous pytest
 python -m pytest tests/ -v
 ```
 
-67 tests covering: surplus allocation, hysteresis, priority preemption, incremental shedding, cooldown (per-consumer), startup warmup, priority uniqueness, consumer/producer CRUD, budget deduction, min-run timer, edge cases, and persistence.
+73 tests covering: surplus allocation, hysteresis, priority preemption, incremental shedding, cooldown (per-consumer), daily runtime limits, startup warmup, priority uniqueness, consumer/producer CRUD, budget deduction, min-run timer, edge cases, and persistence.
 
 ### Linting
 
