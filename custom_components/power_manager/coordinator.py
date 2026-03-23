@@ -874,8 +874,10 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if d["skip_switch"] or not d["should_on"]:
                         continue
                     runtime = d["runtime"]
-                    if d["extend_timer"]:
-                        # Fresh OFF→ON turn-on.
+                    if d["extend_timer"] and not d["runtime"].is_on:
+                        # Fresh OFF→ON turn-on (runtime.is_on guards against
+                        # duplicate logging if extend_timer is true but the
+                        # consumer was already switched on in a previous cycle).
                         if turned_on_this_cycle:
                             # Defer: don't turn on, let next cycle re-evaluate.
                             d["should_on"] = False
