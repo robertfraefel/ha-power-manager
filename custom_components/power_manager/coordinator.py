@@ -835,6 +835,12 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._warmup_remaining,
                 )
 
+            # Helper: snapshot of all consumer power readings for log context.
+            _consumer_powers = ", ".join(
+                f"{d['c']['name']}={'ON' if d['runtime'].is_on else 'OFF'}({d['current_power']:.0f}W)"
+                for d in decisions
+            )
+
             # Phase 2: turn OFF in reverse priority order (lowest priority off first).
             # At most one *active* consumer is shed per cycle.  After shedding the
             # lowest-priority ON consumer the remaining ON-candidates are deferred:
@@ -868,9 +874,9 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             if was_on:
                                 shed_done = True
                                 _off_msg = (
-                                    "Consumer %r (P%s) turned OFF — %s | production=%.0fW, base_load=%.0fW, surplus=%.0fW"
+                                    "Consumer %r (P%s) turned OFF — %s | production=%.0fW, base_load=%.0fW, surplus=%.0fW | consumers: %s"
                                     % (d["c"]["name"], d["c"].get("priority", "?"), d["reason"],
-                                       total_production, base_load, surplus)
+                                       total_production, base_load, surplus, _consumer_powers)
                                 )
                                 _LOGGER.warning(_off_msg)
                                 _SWITCH_LOG.info(_off_msg)
@@ -908,10 +914,11 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         self._last_turn_on_cooldown = cooldown_secs
                         turned_on_this_cycle = True
                         _on_msg = (
-                            "Consumer %r (P%s) turned ON — %s | production=%.0fW, base_load=%.0fW, surplus=%.0fW, min_run=%.0fmin, cooldown=%.0fmin"
+                            "Consumer %r (P%s) turned ON — %s | production=%.0fW, base_load=%.0fW, surplus=%.0fW, min_run=%.0fmin, cooldown=%.0fmin | consumers: %s"
                             % (d["c"]["name"], d["c"].get("priority", "?"), d["reason"],
                                total_production, base_load, surplus, min_run,
-                               float(d["c"].get("cooldown_minutes", DEFAULT_COOLDOWN_MINUTES)))
+                               float(d["c"].get("cooldown_minutes", DEFAULT_COOLDOWN_MINUTES)),
+                               _consumer_powers)
                         )
                         _LOGGER.warning(_on_msg)
                         _SWITCH_LOG.info(_on_msg)
