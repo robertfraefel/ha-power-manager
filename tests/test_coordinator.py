@@ -1498,3 +1498,71 @@ class TestDailyRuntime:
         assert "daily_runtimes" in saved
         assert saved["daily_runtimes"]["Boiler"]["seconds"] == 3600.0
         assert saved["daily_runtimes"]["Boiler"]["date"] == today
+
+
+# ---------------------------------------------------------------------------
+# Preemption does not trigger for cooldown-blocked consumers
+# ---------------------------------------------------------------------------
+
+class TestPreemptionCooldownExclusion:
+    """Cooldown-blocked consumers must not trigger preemption of lower-priority ones."""
+
+    def test_cooldown_blocked_does_not_trigger_preemption(self):
+        """P2 is OFF only because of cooldown (surplus is sufficient).
+        P3 (lower priority, currently ON) must NOT be preempted."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),  # huge surplus
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [
+            _consumer("Boiler", priority=1, expected_power=600),
+            _consumer("Entfeuchter", priority=2, expected_power=200),
+            _consumer("Poolpumpe", priority=3, expected_power=850),
+        ]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        # P1 and P3 already ON, P2 off.
+        coord._runtime["Boiler"] = ConsumerRuntime(is_on=True)
+        coord._runtime["Poolpumpe"] = ConsumerRuntime(is_on=True)
+        # Cooldown active: P1 turned on 2min ago with 5min cooldown.
+        coord._last_turn_on_ts = now - 120  # 2 min ago
+        coord._last_turn_on_cooldown = 300.0  # 5 min
+
+        result = _run(coord._async_update_data())
+
+        # P3 must stay ON — P2 is only blocked by cooldown, not by lack of surplus.
+        assert result["consumer_states"]["Poolpumpe"]["is_on"] is True
+        # P2 should have cooldown reason.
+        assert "cooldown" in result["consumer_states"]["Entfeuchter"]["reason"]
+
+
+# ---------------------------------------------------------------------------
+# Negative base load plausibility check
+# ---------------------------------------------------------------------------
+
+class TestPlausibilityChecks:
+    """Tests for sensor value plausibility guards."""
+
+    def test_negative_base_load_treated_as_zero(self):
+        """A negative base_load reading should be clamped to 0."""
+        now = 1000.0
+        states = {
+            "sensor.base_load": _make_state("-7426", "W"),  # faulty sensor
+            "sensor.pv": _make_state("243", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [_consumer("Boiler", priority=1, expected_power=600)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+
+        result = _run(coord._async_update_data())
+
+        # base_load should be 0 (clamped), surplus = 243 - 0 = 243W.
+        assert result["base_load"] == pytest.approx(0.0)
+        assert result["surplus"] == pytest.approx(243.0)
+        # 243W < 630W threshold — Boiler should NOT turn on.
+        assert result["consumer_states"]["Boiler"]["is_on"] is False

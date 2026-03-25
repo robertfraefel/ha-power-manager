@@ -653,6 +653,12 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # ── base load and surplus ──────────────────────────────────────
             base_load = self._state_float(self._base_load_entity)
+            if base_load < 0:
+                _LOGGER.warning(
+                    "Base load sensor returned negative value (%.1fW) — treating as 0",
+                    base_load,
+                )
+                base_load = 0.0
             surplus = total_production - base_load
             remaining_surplus = surplus
 
@@ -673,6 +679,12 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             now = self.hass.loop.time()
             unix_now = time.time()
             today_str = dt_util.now().date().isoformat()
+
+            # Snapshot of is_on state before any Phase 1 mutations.
+            # Used in Phase 3 to reliably detect genuine OFF→ON transitions.
+            was_on_before: dict[str, bool] = {
+                name: rt.is_on for name, rt in self._runtime.items()
+            }
 
             # Phase 1: compute decisions in ascending priority order so that
             # the remaining_surplus budget is deducted in the correct sequence.
@@ -749,6 +761,7 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             reason = f"on: surplus {remaining_surplus:.1f}W >= {threshold:.1f}W"
                         elif remaining_surplus >= threshold and cooldown_left > 0:
                             # Surplus OK but cooldown active — wait for smart meter.
+                            skip_switch = True  # don't touch the switch while waiting
                             reason = f"off: cooldown ({cooldown_left:.0f}s left)"
                         elif remaining_surplus >= threshold:
                             # Surplus OK, cooldown expired — turn on.
@@ -874,10 +887,10 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if d["skip_switch"] or not d["should_on"]:
                         continue
                     runtime = d["runtime"]
-                    if d["extend_timer"] and not d["runtime"].is_on:
-                        # Fresh OFF→ON turn-on (runtime.is_on guards against
-                        # duplicate logging if extend_timer is true but the
-                        # consumer was already switched on in a previous cycle).
+                    if d["extend_timer"] and not was_on_before.get(d["c"]["name"], False):
+                        # Fresh OFF→ON turn-on.  Uses the snapshot taken before
+                        # Phase 1 to reliably detect transitions — runtime.is_on
+                        # could have been mutated by the deactivated branch.
                         if turned_on_this_cycle:
                             # Defer: don't turn on, let next cycle re-evaluate.
                             d["should_on"] = False
