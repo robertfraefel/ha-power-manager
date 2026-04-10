@@ -67,7 +67,7 @@ The coordinator runs a **4-phase update cycle** every N seconds (default 10 s, c
 
 ### Phase 1 — Decision
 
-Consumers are evaluated in **ascending priority order** (P1 first). For each consumer in `auto` mode:
+Consumers are evaluated in **ascending priority order** (P1 first). Force modes (`force_on`, `force_off`) and `deactivated` are resolved first — they bypass surplus checks and daily limits. For each remaining consumer in `auto` mode:
 
 1. **Already ON → stay ON** when `remaining_surplus ≥ -(current_power × 5%)`. The base load already includes this consumer's draw, so a small negative margin is tolerated.
 2. **OFF → turn ON** when `remaining_surplus ≥ expected_power × 1.05` **and** the global cooldown has expired. The 5% margin prevents toggling near the threshold.
@@ -126,8 +126,8 @@ The asymmetric band provides a dead zone between the on/off thresholds.
 | Mode | Behaviour |
 |------|-----------|
 | `auto` | Controlled by the surplus algorithm |
-| `force_on` | Always ON — surplus is still deducted from budget |
-| `force_off` | Always OFF |
+| `force_on` | Always ON — ignores surplus, daily limit, and cooldown. Useful for manual overrides like a boiler booster script. |
+| `force_off` | Always OFF — ignores surplus and daily limit |
 | `deactivated` | Excluded entirely — switch is not touched, surplus not deducted |
 
 ### Cooldown
@@ -143,7 +143,8 @@ Each consumer can have a `max_daily_minutes` limit (default 0 = unlimited). The 
 
 - Counter resets at **local midnight** (respects HA's configured timezone)
 - **Persisted to storage** — survives HA restarts
-- The daily limit is a **hard safety ceiling**: it overrides `force_on` and min-run hold
+- `force_on` and `force_off` **override** the daily limit — they represent an explicit user decision (e.g. a boiler booster script) and always take precedence
+- In `auto` mode, the daily limit is a hard ceiling that blocks turn-on and overrides min-run hold
 - The panel shows current runtime in the decision column (e.g. `45/120min today`)
 - When the limit is reached, the reason shows `off: daily limit (120/120 min)`
 
@@ -240,7 +241,7 @@ pip install voluptuous pytest
 python -m pytest tests/ -v
 ```
 
-73 tests covering: surplus allocation, hysteresis, priority preemption, incremental shedding, cooldown (per-consumer), daily runtime limits, startup warmup, priority uniqueness, consumer/producer CRUD, budget deduction, min-run timer, edge cases, and persistence.
+75 tests covering: surplus allocation, hysteresis, priority preemption, incremental shedding, cooldown (per-consumer), daily runtime limits, startup warmup, priority uniqueness, consumer/producer CRUD, budget deduction, min-run timer, edge cases, and persistence.
 
 ### Linting
 

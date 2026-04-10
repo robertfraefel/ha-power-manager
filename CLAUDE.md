@@ -99,7 +99,7 @@ Note: the HA service UI converts an empty string field to `null`. To remove an e
 
 ### Consumer runtime state
 
-Consumer modes (`auto` / `force_on` / `force_off` / `deactivated`) live in `ConsumerRuntime.mode` (in-memory, persisted as `runtime_modes` in storage). The `on_until_ts` field uses **asyncio monotonic time** (`hass.loop.time()`). It is converted to Unix time before being sent to the frontend: `unix_now + max(0, on_until_ts - now)`. The frontend uses `state.is_on` (the coordinator's actual decision) as ground truth for detecting min-run hold — it does not recompute from timestamps.
+Consumer modes (`auto` / `force_on` / `force_off` / `deactivated`) live in `ConsumerRuntime.mode` (in-memory, persisted as `runtime_modes` in storage). The decision chain evaluates modes in this order: `stopped → deactivated → force_on → force_off → daily_limit → auto`. Force modes bypass the daily runtime limit because they represent an explicit user decision (e.g. a boiler booster script). The `on_until_ts` field uses **asyncio monotonic time** (`hass.loop.time()`). It is converted to Unix time before being sent to the frontend: `unix_now + max(0, on_until_ts - now)`. The frontend uses `state.is_on` (the coordinator's actual decision) as ground truth for detecting min-run hold — it does not recompute from timestamps.
 
 ### Unsaved-edit preservation (panel)
 
