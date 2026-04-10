@@ -725,62 +725,59 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     skip_switch = True
                     reason = "deactivated"
                     _LOGGER.debug("Consumer %r: deactivated – skipped", name)
+                elif runtime.mode == MODE_FORCE_ON:
+                    should_on = True
+                    extend_timer = not currently_on  # arm on fresh turn-on only
+                    reason = "on: force_on"
+                elif runtime.mode == MODE_FORCE_OFF:
+                    should_on = False
+                    reason = "off: force_off"
                 elif daily_limit_reached:
                     should_on = False
                     reason = f"off: daily limit ({runtime.daily_runtime_s / 60:.0f}/{max_daily:.0f} min)"
                 else:
-                    reason = "off: insufficient surplus"
-
-                    if runtime.mode == MODE_FORCE_ON:
+                    # Auto mode with hysteresis.
+                    #
+                    # Turn ON  requires surplus >= expected * 1.05 — a clear
+                    # positive margin prevents toggling near the threshold.
+                    #
+                    # Stay ON  tolerates a small deficit of up to 5 % of the
+                    # consumer's actual measured draw.  current_power is used
+                    # (not expected) because base_load reflects the real draw.
+                    # When current_power is 0 (consumer just turned on and not
+                    # yet measured) the threshold falls back to 0.
+                    threshold = (
+                        -(current_power * SURPLUS_HYSTERESIS_FACTOR)
+                        if currently_on
+                        else expected * (1.0 + SURPLUS_HYSTERESIS_FACTOR)
+                    )
+                    cooldown_left = self._last_turn_on_ts + self._last_turn_on_cooldown - now
+                    if remaining_surplus >= threshold and currently_on:
+                        # Already ON — keep running (no cooldown for stay-on).
                         should_on = True
-                        extend_timer = not currently_on  # arm on fresh turn-on only
-                        reason = "on: force_on"
-                    elif runtime.mode == MODE_FORCE_OFF:
-                        should_on = False
-                        reason = "off: force_off"
+                        reason = f"on: surplus {remaining_surplus:.1f}W >= {threshold:.1f}W"
+                    elif remaining_surplus >= threshold and cooldown_left > 0:
+                        # Surplus OK but cooldown active — wait for smart meter.
+                        skip_switch = True  # don't touch the switch while waiting
+                        reason = f"off: cooldown ({cooldown_left:.0f}s left)"
+                    elif remaining_surplus >= threshold:
+                        # Surplus OK, cooldown expired — turn on.
+                        should_on = True
+                        extend_timer = True
+                        reason = f"on: surplus {remaining_surplus:.1f}W >= {threshold:.1f}W"
+                    elif runtime.on_until_ts > now:
+                        # Min-runtime protection: surplus dropped before timer elapsed.
+                        should_on = True
+                        extend_timer = False
+                        reason = f"on: holding min runtime ({(runtime.on_until_ts - now):.0f}s left)"
                     else:
-                        # Auto mode with hysteresis.
-                        #
-                        # Turn ON  requires surplus >= expected * 1.05 — a clear
-                        # positive margin prevents toggling near the threshold.
-                        #
-                        # Stay ON  tolerates a small deficit of up to 5 % of the
-                        # consumer's actual measured draw.  current_power is used
-                        # (not expected) because base_load reflects the real draw.
-                        # When current_power is 0 (consumer just turned on and not
-                        # yet measured) the threshold falls back to 0.
-                        threshold = (
-                            -(current_power * SURPLUS_HYSTERESIS_FACTOR)
-                            if currently_on
-                            else expected * (1.0 + SURPLUS_HYSTERESIS_FACTOR)
-                        )
-                        cooldown_left = self._last_turn_on_ts + self._last_turn_on_cooldown - now
-                        if remaining_surplus >= threshold and currently_on:
-                            # Already ON — keep running (no cooldown for stay-on).
-                            should_on = True
-                            reason = f"on: surplus {remaining_surplus:.1f}W >= {threshold:.1f}W"
-                        elif remaining_surplus >= threshold and cooldown_left > 0:
-                            # Surplus OK but cooldown active — wait for smart meter.
-                            skip_switch = True  # don't touch the switch while waiting
-                            reason = f"off: cooldown ({cooldown_left:.0f}s left)"
-                        elif remaining_surplus >= threshold:
-                            # Surplus OK, cooldown expired — turn on.
-                            should_on = True
-                            extend_timer = True
-                            reason = f"on: surplus {remaining_surplus:.1f}W >= {threshold:.1f}W"
-                        elif runtime.on_until_ts > now:
-                            # Min-runtime protection: surplus dropped before timer elapsed.
-                            should_on = True
-                            extend_timer = False
-                            reason = f"on: holding min runtime ({(runtime.on_until_ts - now):.0f}s left)"
-                        else:
-                            reason = f"off: surplus {remaining_surplus:.1f}W < {threshold:.1f}W"
-
-                    _LOGGER.debug("Consumer %r: %s", name, reason)
+                        reason = f"off: surplus {remaining_surplus:.1f}W < {threshold:.1f}W"
 
                     # Deduct from budget for fresh auto turn-ons (priority order preserved).
-                    if should_on and runtime.mode == MODE_AUTO and not currently_on:
+                    if should_on and not currently_on:
                         remaining_surplus -= expected
+
+                _LOGGER.debug("Consumer %r: %s", name, reason)
 
                 decisions.append({
                     "c": c,
