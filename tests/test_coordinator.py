@@ -68,6 +68,7 @@ def _make_coordinator(
     coord._warmup_remaining = 0
     coord._last_turn_on_ts = 0.0
     coord._last_turn_on_cooldown = 5.0 * 60  # DEFAULT_COOLDOWN_MINUTES in seconds
+    coord._last_runtime_persist = 0.0
     coord._store = MagicMock()
     coord._store.async_save = AsyncMock()
     coord.async_request_refresh = AsyncMock()
@@ -1459,6 +1460,41 @@ class TestDailyRuntime:
         result = _run(coord._async_update_data())
 
         assert result["consumer_states"]["Boiler"]["is_on"] is True
+
+    def test_runtime_persisted_periodically(self):
+        """The update cycle persists runtime state once the delay has elapsed."""
+        now = 100_000.0  # far past RUNTIME_PERSIST_DELAY_S since last persist (0)
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [_consumer("Boiler", priority=1)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+
+        _run(coord._async_update_data())
+
+        coord._store.async_save.assert_awaited()
+        assert coord._last_runtime_persist == now
+
+    def test_runtime_persist_throttled(self):
+        """No disk write while the persist delay window has not elapsed."""
+        now = 100_000.0
+        states = {
+            "sensor.base_load": _make_state("0", "W"),
+            "sensor.pv": _make_state("5000", "W"),
+        }
+        producers = [{"name": "PV", "entity_id": "sensor.pv"}]
+        consumers = [_consumer("Boiler", priority=1)]
+        hass = _make_hass(states=states, now=now)
+        coord = _make_coordinator(hass, producers=producers, consumers=consumers)
+        # A persist just happened this cycle — next one must be throttled.
+        coord._last_runtime_persist = now
+
+        _run(coord._async_update_data())
+
+        coord._store.async_save.assert_not_awaited()
 
     def test_daily_runtime_in_consumer_states(self):
         """consumer_states includes daily_runtime_m and max_daily_minutes."""

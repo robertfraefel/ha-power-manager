@@ -21,10 +21,16 @@ CONF_BASE_LOAD_ENTITY = "base_load_entity"
 CONF_PRODUCERS = "producers"
 CONF_CONSUMERS = "consumers"
 
-INTEGRATION_VERSION = "0.2.36"
+INTEGRATION_VERSION = "0.2.37"
 
 DEFAULT_SCAN_INTERVAL = 10
 DEFAULT_COOLDOWN_MINUTES = 5
+
+# Minimum seconds between periodic persistence of daily runtime counters from
+# the update cycle.  Config mutations still save immediately; this throttles
+# the continuously-changing counters so they survive restarts without a disk
+# write on every scan.
+RUNTIME_PERSIST_DELAY_S = 300
 
 MODE_AUTO = "auto"
 MODE_FORCE_ON = "force_on"

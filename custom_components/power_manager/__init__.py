@@ -50,7 +50,8 @@ from homeassistant.components import websocket_api
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.components.panel_custom import async_register_panel
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.core import Event, HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN, INTEGRATION_VERSION, PLATFORMS, VALID_MODES
@@ -746,6 +747,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = coordinator
     hass.data[DOMAIN]["coordinator"] = coordinator
 
+    # async_unload_entry runs only on integration reload/removal — NOT on HA
+    # shutdown.  Persist runtime state on shutdown so daily runtime counters
+    # survive a restart.
+    async def _async_save_on_stop(_event: Event) -> None:
+        await coordinator.async_save_state()
+
+    entry.async_on_unload(
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_save_on_stop)
+    )
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
@@ -753,8 +764,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a Power Manager config entry.
 
-    Saves coordinator state to storage before teardown so no configuration
-    is lost during an integration reload or HA shutdown.
+    Saves coordinator state to storage before teardown so no configuration is
+    lost during an integration reload.  HA shutdown does not call this hook —
+    it is handled by the homeassistant_stop listener in async_setup_entry.
     """
     coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
     if coordinator:

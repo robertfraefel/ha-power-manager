@@ -54,10 +54,11 @@ The asymmetric band provides hysteresis:
 
 Persistence
 -----------
-Configuration (producers, consumers, runtime modes, running flag) is saved to
-HA's Store (.storage/power_manager_<entry_id>) after every mutation and on
-integration unload.  Transient runtime values (is_on, on_until_ts) are NOT
-saved — they reset on each restart.
+Configuration (producers, consumers, runtime modes, running flag) and daily
+runtime counters are saved to HA's Store (.storage/power_manager) after every
+mutation, periodically from the update cycle (RUNTIME_PERSIST_DELAY_S), and on
+HA shutdown.  Transient runtime values (is_on, on_until_ts) are NOT saved —
+they reset on each restart.
 """
 from __future__ import annotations
 
@@ -89,6 +90,7 @@ from .const import (
     MODE_DEACTIVATED,
     MODE_FORCE_OFF,
     MODE_FORCE_ON,
+    RUNTIME_PERSIST_DELAY_S,
     VALID_MODES,
 )
 
@@ -194,6 +196,10 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # has had time to reflect the new load.
         self._last_turn_on_ts: float = 0.0
         self._last_turn_on_cooldown: float = DEFAULT_COOLDOWN_MINUTES * 60
+        # Monotonic timestamp of the last periodic runtime persistence.  The
+        # update cycle re-saves daily runtime counters every RUNTIME_PERSIST_
+        # DELAY_S so they survive an HA restart (config mutations save at once).
+        self._last_runtime_persist: float = 0.0
 
         # Fixed storage key — not tied to entry_id so config survives
         # remove-and-re-add of the integration during updates.
@@ -290,9 +296,14 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             blocking=True,
         )
 
-    async def _async_save(self) -> None:
-        """Persist current configuration and runtime modes to HA Store."""
-        payload = {
+    def _build_storage_payload(self) -> dict[str, Any]:
+        """Build the dict persisted to the HA Store.
+
+        Used both for immediate saves (config mutations) and the throttled
+        periodic save in _async_update_data that keeps daily runtime counters
+        durable across restarts.
+        """
+        return {
             "base_load_entity": self._base_load_entity,
             "base_load_name": self._base_load_name,
             "producers": self._producers,
@@ -307,7 +318,10 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 for name, rt in self._runtime.items()
             },
         }
-        await self._store.async_save(payload)
+
+    async def _async_save(self) -> None:
+        """Persist current configuration and runtime state to HA Store."""
+        await self._store.async_save(self._build_storage_payload())
 
     async def async_save_state(self) -> None:
         """Public alias for _async_save — called by async_unload_entry."""
@@ -941,6 +955,17 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "daily_runtime_m": round(runtime.daily_runtime_s / 60, 1),
                     "max_daily_minutes": max_daily,
                 }
+
+            # Persist daily runtime counters periodically so they survive an HA
+            # restart.  Config mutations save immediately; this throttled save
+            # covers the continuously-changing counters without a disk write on
+            # every scan cycle.  A failed write must not break the control loop.
+            if now - self._last_runtime_persist >= RUNTIME_PERSIST_DELAY_S:
+                self._last_runtime_persist = now
+                try:
+                    await self._async_save()
+                except Exception as err:
+                    _LOGGER.warning("Failed to persist runtime state: %s", err)
 
             return {
                 "running": self.running,
