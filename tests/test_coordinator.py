@@ -1496,6 +1496,34 @@ class TestDailyRuntime:
 
         coord._store.async_save.assert_not_awaited()
 
+    def test_reset_daily_runtime(self):
+        """Resetting a consumer's daily counter zeroes it and dates it today."""
+        from custom_components.power_manager.coordinator import ConsumerRuntime
+        from homeassistant.util import dt as dt_util
+
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, consumers=[_consumer("Boiler", priority=1)])
+        coord._runtime["Boiler"] = ConsumerRuntime(
+            daily_runtime_s=480 * 60, daily_runtime_date="2020-01-01"
+        )
+
+        _run(coord.async_reset_daily_runtime("Boiler"))
+
+        assert coord._runtime["Boiler"].daily_runtime_s == 0.0
+        assert (
+            coord._runtime["Boiler"].daily_runtime_date
+            == dt_util.now().date().isoformat()
+        )
+        coord._store.async_save.assert_awaited_once()
+
+    def test_reset_daily_runtime_unknown_consumer(self):
+        """Resetting an unknown consumer raises UpdateFailed."""
+        hass = _make_hass(states={})
+        coord = _make_coordinator(hass, consumers=[_consumer("Boiler", priority=1)])
+
+        with pytest.raises(Exception, match="unknown consumer"):
+            _run(coord.async_reset_daily_runtime("Nope"))
+
     def test_daily_runtime_in_consumer_states(self):
         """consumer_states includes daily_runtime_m and max_daily_minutes."""
         now = 1000.0

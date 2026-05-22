@@ -28,7 +28,7 @@
  */
 
 /** Increment this whenever the panel JS changes. Shown in the summary bar. */
-const PANEL_VERSION = '0.2.35';
+const PANEL_VERSION = '0.2.36';
 
 /**
  * `<power-manager-panel>` — sidebar panel for the Power Manager integration.
@@ -831,6 +831,7 @@ class PowerManagerPanel extends HTMLElement {
         <td style="font-size:11px;max-width:220px;white-space:normal;line-height:1.5">${decisionHtml}</td>
         <td style="white-space:nowrap">
           <button data-a="save">Save</button>
+          ${Number(c.max_daily_minutes || 0) > 0 ? '<button data-a="reset-runtime" title="Reset daily runtime counter">↻ Daily</button>' : ''}
           <button data-a="del" class="btn-del">Del</button>
         </td>
       `;
@@ -885,6 +886,18 @@ class PowerManagerPanel extends HTMLElement {
         await this._ws('power_manager/remove_consumer', { name: c.name });
         await this._load();
       };
+      const resetBtn = tr.querySelector('[data-a="reset-runtime"]');
+      if (resetBtn) {
+        resetBtn.onclick = async () => {
+          if (!confirm(`Reset today's runtime counter for "${c.name}"?`)) return;
+          try {
+            await this._ws('power_manager/reset_daily_runtime', { consumer: c.name });
+            await this._load();
+          } catch (err) {
+            alert(`Failed to reset runtime: ${err?.message || err}`);
+          }
+        };
+      }
       consRows.appendChild(tr);
     });
   }

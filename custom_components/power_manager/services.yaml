@@ -25,6 +25,17 @@ set_consumer_mode:
             - force_off
             - deactivated
 
+reset_daily_runtime:
+  name: Reset daily runtime
+  description: >-
+    Reset a consumer's daily runtime counter to zero, granting it a fresh
+    daily budget (one-off exception after max_daily_minutes was reached).
+  fields:
+    consumer:
+      required: true
+      selector:
+        text:
+
 add_producer:
   name: Add producer
   description: Add a producer power entity.

@@ -384,6 +384,27 @@ class PowerManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_save()
         await self.async_request_refresh()
 
+    async def async_reset_daily_runtime(self, consumer_name: str) -> None:
+        """Reset a consumer's daily runtime counter to zero and trigger a refresh.
+
+        Grants a fresh daily budget — e.g. as a one-off exception after the
+        configured max_daily_minutes limit has been reached.
+
+        Args:
+            consumer_name: Name of the consumer whose counter to reset.
+
+        Raises:
+            UpdateFailed: If no consumer with this name exists.
+        """
+        if consumer_name not in self._runtime:
+            raise UpdateFailed(f"unknown consumer: {consumer_name}")
+        runtime = self._runtime[consumer_name]
+        runtime.daily_runtime_s = 0.0
+        runtime.daily_runtime_date = dt_util.now().date().isoformat()
+        _LOGGER.info("Daily runtime counter reset for consumer %r", consumer_name)
+        await self._async_save()
+        await self.async_request_refresh()
+
     async def async_update_base_load_entity(self, entity_id: str, name: str | None = None) -> None:
         """Change the base-load sensor entity ID (and optionally its display name) and trigger a refresh."""
         self._base_load_entity = entity_id

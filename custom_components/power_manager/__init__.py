@@ -33,6 +33,7 @@ Registered commands:
     add_consumer        Add a consumer.
     update_consumer     Update consumer fields (all optional except name).
     remove_consumer     Remove a consumer.
+    reset_daily_runtime Reset a consumer's daily runtime counter to zero.
 
 Panel
 -----
@@ -76,6 +77,7 @@ SERVICE_UPDATE_BASE_LOAD_ENTITY = "update_base_load_entity"
 SERVICE_CLEAR_PRODUCERS = "clear_producers"
 SERVICE_CLEAR_CONSUMERS = "clear_consumers"
 SERVICE_CLEAR_BASE_LOAD = "clear_base_load"
+SERVICE_RESET_DAILY_RUNTIME = "reset_daily_runtime"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -398,6 +400,26 @@ async def _register_ws(hass: HomeAssistant) -> None:
         await coordinator.async_set_scan_interval(int(msg["scan_interval_seconds"]))
         connection.send_result(msg["id"], _config_payload(coordinator))
 
+    @websocket_api.websocket_command(
+        {
+            "type": "power_manager/reset_daily_runtime",
+            "consumer": str,
+        }
+    )
+    @websocket_api.async_response
+    async def ws_reset_daily_runtime(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        """Reset a consumer's daily runtime counter to zero."""
+        coordinator = _coordinator(hass)
+        if not coordinator:
+            connection.send_error(msg["id"], "not_loaded", "Power Manager not loaded")
+            return
+        await coordinator.async_reset_daily_runtime(msg["consumer"])
+        connection.send_result(msg["id"], _config_payload(coordinator))
+
     websocket_api.async_register_command(hass, ws_get_config)
     websocket_api.async_register_command(hass, ws_set_base)
     websocket_api.async_register_command(hass, ws_add_producer)
@@ -407,6 +429,7 @@ async def _register_ws(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_update_consumer)
     websocket_api.async_register_command(hass, ws_remove_consumer)
     websocket_api.async_register_command(hass, ws_set_scan_interval)
+    websocket_api.async_register_command(hass, ws_reset_daily_runtime)
 
     hass.data[DOMAIN]["ws_registered"] = True
 
@@ -436,6 +459,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         coordinator = _coordinator(hass)
         if coordinator:
             await coordinator.async_set_consumer_mode(call.data["consumer"], call.data["mode"])
+
+    async def _reset_daily_runtime(call: ServiceCall) -> None:
+        """Reset a consumer's daily runtime counter to zero."""
+        coordinator = _coordinator(hass)
+        if coordinator:
+            await coordinator.async_reset_daily_runtime(call.data["consumer"])
 
     async def _add_producer(call: ServiceCall) -> None:
         """Add a producer via HA service call."""
@@ -647,6 +676,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 vol.Required("mode"): vol.In(VALID_MODES),
             }
         ),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_RESET_DAILY_RUNTIME,
+        _reset_daily_runtime,
+        schema=vol.Schema({vol.Required("consumer"): cv.string}),
     )
     hass.services.async_register(
         DOMAIN,
